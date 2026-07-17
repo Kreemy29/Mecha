@@ -4,6 +4,31 @@ import { execSync } from "child_process";
 
 const STORAGE_DIR = path.resolve("./storage/references");
 
+// Resolve the ffmpeg binary. Falls back to bare "ffmpeg" (PATH), but can be
+// pinned via FFMPEG_PATH for environments where it isn't on PATH.
+const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
+// ffprobe ships alongside ffmpeg — derive its path from FFMPEG unless overridden.
+const FFPROBE =
+  process.env.FFPROBE_PATH || FFMPEG.replace(/ffmpeg(\.exe)?$/i, "ffprobe$1");
+
+// Return the video's duration in whole seconds (rounded, min 1). 0 if unknown.
+export function getVideoDurationSeconds(videoPath: string): number {
+  const abs = path.resolve(videoPath);
+  if (!fs.existsSync(abs)) return 0;
+  try {
+    const out = execSync(
+      `"${FFPROBE}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${abs}"`,
+      { stdio: ["ignore", "pipe", "ignore"] }
+    )
+      .toString()
+      .trim();
+    const d = parseFloat(out);
+    return isFinite(d) && d > 0 ? Math.max(1, Math.round(d)) : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function ensureDir(dir: string) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
@@ -265,7 +290,7 @@ export async function downloadInstagramReel(
   const framePath = path.join(STORAGE_DIR, `${id}_frame.jpg`);
   try {
     execSync(
-      `ffmpeg -i "${videoPath}" -vframes 1 -q:v 2 "${framePath}" -y`,
+      `"${FFMPEG}" -i "${videoPath}" -vframes 1 -q:v 2 "${framePath}" -y`,
       { stdio: "pipe" }
     );
   } catch (err) {
@@ -281,6 +306,144 @@ export async function downloadInstagramReel(
     videoPath: path.relative(process.cwd(), videoPath),
     framePath: path.relative(process.cwd(), framePath),
   };
+}
+
+// ── Extract candidate frames from the start of a video ──
+// Grabs `count` frames spread across the first `seconds` of the clip so the
+// operator can pick the cleanest pose to recreate (the first literal frame is
+// often motion-blurred or mid-blink). Returns relative paths to the JPEGs.
+export async function extractFramesFromVideo(
+  videoPath: string,
+  count: number = 10,
+  seconds: number = 2
+): Promise<string[]> {
+  const abs = path.resolve(videoPath);
+  if (!fs.existsSync(abs)) {
+    throw new Error(`extractFrames: video not found: ${abs}`);
+  }
+
+  ensureDir(STORAGE_DIR);
+  const id = fileId();
+  // fps = count/seconds → `count` evenly-spaced frames within the window.
+  const fps = (count / seconds).toFixed(4);
+  const pattern = path.join(STORAGE_DIR, `${id}_frame_%02d.jpg`);
+
+  try {
+    execSync(
+      `"${FFMPEG}" -t ${seconds} -i "${abs}" -vf "fps=${fps}" -frames:v ${count} -q:v 2 "${pattern}" -y`,
+      { stdio: "pipe" }
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `ffmpeg frame extraction failed (is ffmpeg on PATH?): ${msg}`
+    );
+  }
+
+  // Collect whatever frames ffmpeg actually produced (may be < count for short clips).
+  const frames: string[] = [];
+  for (let i = 1; i <= count; i++) {
+    const framePath = path.join(
+      STORAGE_DIR,
+      `${id}_frame_${String(i).padStart(2, "0")}.jpg`
+    );
+    if (fs.existsSync(framePath)) {
+      frames.push(path.relative(process.cwd(), framePath));
+    }
+  }
+
+  if (frames.length === 0) {
+    throw new Error("ffmpeg produced no frames from the video");
+  }
+  return frames;
+}
+
+// Video pixel dimensions via ffprobe (null if unknown).
+export function getVideoDimensions(
+  videoPath: string
+): { width: number; height: number } | null {
+  const abs = path.resolve(videoPath);
+  if (!fs.existsSync(abs)) return null;
+  try {
+    const out = execSync(
+      `"${FFPROBE}" -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "${abs}"`,
+      { stdio: ["ignore", "pipe", "ignore"] }
+    )
+      .toString()
+      .trim();
+    const [w, h] = out.split("x").map(Number);
+    return w > 0 && h > 0 ? { width: w, height: h } : null;
+  } catch {
+    return null;
+  }
+}
+
+// Re-encode a reference video to fit KIE Seedance limits: <=15s, total pixels in
+// [409600, 927408] (preserving aspect), 30fps, h264/mp4. Returns the new path.
+export async function prepareVideoForKie(videoPath: string): Promise<string> {
+  const abs = path.resolve(videoPath);
+  if (!fs.existsSync(abs)) {
+    throw new Error(`prepareVideoForKie: video not found: ${abs}`);
+  }
+  ensureDir(STORAGE_DIR);
+  const out = path.join(STORAGE_DIR, `${fileId()}_kie.mp4`);
+
+  let scaleFilter = "scale=trunc(iw/2)*2:trunc(ih/2)*2";
+  const dims = getVideoDimensions(videoPath);
+  if (dims) {
+    const area = dims.width * dims.height;
+    let factor = 1;
+    if (area > 921600) factor = Math.sqrt(921600 / area); // shrink under max
+    else if (area < 409600) factor = Math.sqrt(430000 / area); // grow over min
+    const nw = Math.max(2, Math.round((dims.width * factor) / 2) * 2);
+    const nh = Math.max(2, Math.round((dims.height * factor) / 2) * 2);
+    scaleFilter = `scale=${nw}:${nh}`;
+  }
+
+  try {
+    execSync(
+      `"${FFMPEG}" -t 15 -i "${abs}" -vf "${scaleFilter},fps=30" -c:v libx264 -pix_fmt yuv420p -an -movflags +faststart "${out}" -y`,
+      { stdio: "pipe" }
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`prepareVideoForKie ffmpeg failed: ${msg}`);
+  }
+  return path.relative(process.cwd(), out);
+}
+
+// Sample `count` frames evenly across the ENTIRE video (for motion analysis),
+// not just the opening seconds. Falls back to a 2s window if duration unknown.
+export async function extractTimelineFrames(
+  videoPath: string,
+  count: number = 8
+): Promise<string[]> {
+  const duration = getVideoDurationSeconds(videoPath) || 2;
+  return extractFramesFromVideo(videoPath, count, duration);
+}
+
+// ── Save an uploaded video locally (returns relative path) ──
+export async function saveUploadedVideo(buffer: Buffer): Promise<string> {
+  ensureDir(STORAGE_DIR);
+  const id = fileId();
+  const filePath = path.join(STORAGE_DIR, `${id}.mp4`);
+  fs.writeFileSync(filePath, buffer);
+  return path.relative(process.cwd(), filePath);
+}
+
+// ── Save an uploaded image locally (returns relative path) ──
+export async function saveUploadedImage(
+  buffer: Buffer,
+  originalName?: string
+): Promise<string> {
+  ensureDir(STORAGE_DIR);
+  const id = fileId();
+  const ext = (
+    originalName?.match(/\.(jpe?g|png|webp|gif)$/i)?.[1] || "jpg"
+  ).toLowerCase();
+  const filePath = path.join(STORAGE_DIR, `${id}.${ext}`);
+  fs.writeFileSync(filePath, buffer);
+  return path.relative(process.cwd(), filePath);
 }
 
 // ── Download a reference image locally ──

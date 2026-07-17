@@ -8,6 +8,9 @@ import path from "path";
 const POLL_INTERVAL_MS = 3000;
 const MAX_POLL_BACKOFF_MS = 30000;
 const MAX_ATTEMPTS = 3;
+// Safety net: no provider job legitimately renders this long. Prevents a bogus
+// provider id (or a hung provider) from wedging a queue slot forever.
+const MAX_POLL_MS = 45 * 60 * 1000;
 
 function getJob(jobId: number) {
   return db
@@ -87,8 +90,16 @@ export async function processJob(jobId: number): Promise<void> {
       prompt: job.prompt || "",
       characterRef: refs.soulId,
       faceRefUrl: refs.faceUrl,
-      referenceImagePath: null,
-      referenceVideoPath: null,
+      // Wan Animate (runninghub) + Seedance (higgsfield) jobs carry their
+      // image/video inputs in providerParams.
+      referenceImagePath:
+        job.providerParams?.animateImagePath ||
+        job.providerParams?.seedanceImagePath ||
+        null,
+      referenceVideoPath:
+        job.providerParams?.animateVideoPath ||
+        job.providerParams?.seedanceVideoPath ||
+        null,
       kind: job.kind,
       modelKey: job.providerModel || undefined,
       params: job.providerParams || undefined,
@@ -104,8 +115,21 @@ export async function processJob(jobId: number): Promise<void> {
       .run();
 
     let pollInterval = POLL_INTERVAL_MS;
+    const pollStart = Date.now();
     while (true) {
       await sleep(pollInterval);
+
+      if (Date.now() - pollStart > MAX_POLL_MS) {
+        db.update(schema.jobs)
+          .set({
+            status: "failed",
+            error: `Poll timeout after ${Math.round(MAX_POLL_MS / 60000)} min — provider job ${providerJobId} never reached a terminal state`,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(schema.jobs.id, jobId))
+          .run();
+        return;
+      }
 
       const result = await provider.poll(providerJobId);
 
@@ -115,6 +139,26 @@ export async function processJob(jobId: number): Promise<void> {
       }
 
       if (result.status === "filtered") {
+        // Seedance: NSFW filter refunds credits — auto-regenerate (unlimited)
+        // until a video succeeds. Re-queue (no recursion) so the poller retries.
+        if (job.kind === "seedance") {
+          const attempts = (getJob(jobId)?.attempts || 0) + 1;
+          console.log(
+            `[JobRunner] Seedance job ${jobId} NSFW-filtered — auto-regenerating (attempt ${attempts})`
+          );
+          db.update(schema.jobs)
+            .set({
+              status: "queued",
+              attempts,
+              error: `NSFW-filtered ${attempts}× — regenerating`,
+              providerJobId: null,
+              updatedAt: new Date().toISOString(),
+            })
+            .where(eq(schema.jobs.id, jobId))
+            .run();
+          await sleep(4000);
+          return;
+        }
         db.update(schema.jobs)
           .set({
             status: "filtered",

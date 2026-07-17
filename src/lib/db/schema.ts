@@ -61,7 +61,7 @@ export const jobs = sqliteTable("jobs", {
   characterId: integer("character_id").references(() => characters.id),
   referenceId: integer("reference_id").references(() => references.id),
   kind: text("kind", {
-    enum: ["image", "talking_head", "motion_capture"],
+    enum: ["image", "talking_head", "motion_capture", "seedance"],
   }).notNull(),
   status: text("status", {
     enum: [
@@ -76,13 +76,27 @@ export const jobs = sqliteTable("jobs", {
   })
     .notNull()
     .default("queued"),
-  provider: text("provider", { enum: ["higgsfield", "runninghub", "fal", "dummy"] }),
+  provider: text("provider", {
+    enum: ["higgsfield", "runninghub", "fal", "dummy", "seedance", "kie"],
+  }),
   providerModel: text("provider_model"),
   providerParams: text("provider_params", { mode: "json" }).$type<{
     quality?: string;
     aspectRatio?: string;
     enhancePrompt?: boolean;
     sceneRefUrl?: string;
+    // Wan Animate (runninghub) inputs:
+    seconds?: number;
+    animateImagePath?: string; // approved recreated still
+    animateVideoPath?: string; // original driving video
+    // Seedance (higgsfield generate_video) inputs:
+    seedanceImagePath?: string; // approved recreated still (@Image1)
+    seedanceVideoPath?: string; // reference video (@Video1)
+    duration?: number;
+    outfit?: string; // the dress this variant was generated for
+    // Explicit reference images (paths or URLs) passed to the model as medias.
+    // Used by the nano-banana background swap: [subject still, new background].
+    mediaRefs?: string[];
   }>(),
   providerJobId: text("provider_job_id"),
   prompt: text("prompt"),
@@ -102,6 +116,20 @@ export const jobs = sqliteTable("jobs", {
     .notNull()
     .default(sql`(datetime('now'))`),
   updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`(datetime('now'))`),
+});
+
+// Reusable backgrounds. The `description` is a FROZEN prompt fragment — it is
+// injected verbatim as the scene's environment so the same backdrop renders
+// identically on every generation (re-describing an image each time produced
+// slightly different rooms).
+export const backgrounds = sqliteTable("backgrounds", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  imagePath: text("image_path"),
+  createdAt: text("created_at")
     .notNull()
     .default(sql`(datetime('now'))`),
 });

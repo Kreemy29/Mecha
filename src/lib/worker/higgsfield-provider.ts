@@ -10,6 +10,62 @@ import {
 import fs from "fs";
 import path from "path";
 
+// Higgsfield Souls have NO negative-prompt parameter — the whole prompt string is
+// treated as positive text. Our recreation step emits a structured JSON that
+// includes a `negative_prompt` array (for LoRA runners). Sent verbatim to
+// Higgsfield, words like "tattoo" in that array become POSITIVE cues and cause
+// the very artifacts we're trying to avoid. So for Higgsfield we flatten the JSON
+// to clean prose, drop the negative_prompt/loras/controls entirely, strip any
+// stray tattoo/ink words, and add a positive clean-skin cue.
+export function toHiggsfieldPrompt(raw: string): string {
+  let obj: Record<string, unknown>;
+  try {
+    obj = JSON.parse(raw);
+  } catch {
+    return raw; // already plain prose
+  }
+  if (!obj || typeof obj !== "object" || !("subject" in obj)) return raw;
+
+  const g = (o: unknown, k: string): string => {
+    const v = (o as Record<string, unknown>)?.[k];
+    if (Array.isArray(v)) return v.filter(Boolean).join(", ");
+    return typeof v === "string" ? v : "";
+  };
+  const s = obj.subject,
+    p = obj.pose,
+    e = obj.environment,
+    c = obj.camera,
+    l = obj.lighting,
+    o = obj.output;
+
+  const parts: string[] = [];
+  const subj = [g(s, "description"), g(s, "anatomy")].filter(Boolean).join(", ");
+  if (subj) parts.push(subj);
+  parts.push("flawless smooth clean unmarked skin"); // positive cue (no negation)
+  if (g(s, "attire")) parts.push(`wearing ${g(s, "attire")}`);
+  if (g(s, "accessories")) parts.push(g(s, "accessories"));
+  const pose = ["type", "orientation", "expression", "arms", "legs", "spine"]
+    .map((k) => g(p, k))
+    .filter(Boolean)
+    .join(", ");
+  if (pose) parts.push(pose);
+  if (g(e, "location")) parts.push(`in ${g(e, "location")}`);
+  const cam = ["type", "lens", "dof"].map((k) => g(c, k)).filter(Boolean).join(", ");
+  if (cam) parts.push(cam);
+  const light = [g(l, "sources"), g(l, "quality")].filter(Boolean).join(", ");
+  if (light) parts.push(light);
+  if (g(o, "style")) parts.push(g(o, "style"));
+
+  let out = parts.filter(Boolean).join(". ");
+  // Belt-and-suspenders: remove any stray tattoo/ink references from the text.
+  out = out
+    .replace(/\b(tattoos?|ink|body art|markings?)\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([.,])/g, "$1")
+    .trim();
+  return out;
+}
+
 // Higgsfield image provider — submits via generate_image, polls via job_display
 // (the "Check Job Status" tool), downloads results.rawUrl.
 export class HiggsfieldProvider implements JobProvider {
@@ -31,6 +87,7 @@ export class HiggsfieldProvider implements JobProvider {
       aspectRatio?: string;
       enhancePrompt?: boolean;
       sceneRefUrl?: string;
+      mediaRefs?: string[];
     } | null;
   }): Promise<ProviderSubmitResult> {
     const model = job.modelKey || this.modelKey;
@@ -40,10 +97,14 @@ export class HiggsfieldProvider implements JobProvider {
     const isSoul = soulModels.has(model);
     const soulId = isSoul && job.characterRef ? job.characterRef : undefined;
 
-    // Non-Soul models (seedream, nano-banana, gpt-image) get the actual face
-    // (and scene) reference images uploaded as medias for the subject swap.
+    // Non-Soul models (seedream, nano-banana, gpt-image) get reference images
+    // uploaded as medias. An explicit mediaRefs list wins (e.g. the background
+    // swap sends [subject still, new background]); otherwise fall back to the
+    // face (+ scene) refs used by the subject swap.
     const mediaRefs: string[] = [];
-    if (!isSoul) {
+    if (job.params?.mediaRefs?.length) {
+      mediaRefs.push(...job.params.mediaRefs);
+    } else if (!isSoul) {
       if (job.faceRefUrl) mediaRefs.push(job.faceRefUrl);
       if (job.params?.sceneRefUrl) mediaRefs.push(job.params.sceneRefUrl);
     }
@@ -54,7 +115,11 @@ export class HiggsfieldProvider implements JobProvider {
       }${mediaRefs.length ? ` (+${mediaRefs.length} refs)` : ""}`
     );
 
-    const { jobId } = await submitImageJob(job.prompt, {
+    // Flatten the structured recreation JSON to clean prose (Higgsfield has no
+    // negative-prompt support, so the raw JSON's negatives would backfire).
+    const higgsfieldPrompt = toHiggsfieldPrompt(job.prompt);
+
+    const { jobId } = await submitImageJob(higgsfieldPrompt, {
       model,
       soulId,
       aspectRatio: job.params?.aspectRatio || "3:4",

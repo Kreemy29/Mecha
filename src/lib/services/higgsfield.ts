@@ -276,6 +276,7 @@ export async function listCharacters(
 //   job_display    → { results: [{ id, status, results: { rawUrl, minUrl }, model, params }] }
 // For a trained Soul: model "soul_2" + soul_id. Output to download is results.rawUrl.
 const GENERATE_IMAGE_TOOL = "generate_image";
+const GENERATE_VIDEO_TOOL = "generate_video";
 const JOB_DISPLAY_TOOL = "job_display";
 
 const UUID_RE =
@@ -401,7 +402,26 @@ export async function submitImageJob(
         console.error(`[Higgsfield] Failed to upload reference ${ref}:`, err);
       }
     }
-    if (medias.length > 0) params.medias = medias;
+    // Fail loudly rather than generating with a partial reference set — a
+    // missing reference silently produces a completely wrong image.
+    if (medias.length !== options.mediaRefs.length) {
+      throw new Error(
+        `Reference upload incomplete: ${medias.length}/${options.mediaRefs.length} images uploaded. Refusing to generate with a partial reference set.`
+      );
+    }
+    params.medias = medias;
+    console.log(`[Higgsfield] Attached ${medias.length} reference image(s)`);
+  }
+
+  // Debug dump: exactly what we sent (incl. medias) — so reference-image issues
+  // are diagnosable without guessing.
+  try {
+    fs.writeFileSync(
+      "./data/debug-generate-image.json",
+      JSON.stringify({ params }, null, 2)
+    );
+  } catch {
+    // non-fatal
   }
 
   const result = (await callTool(GENERATE_IMAGE_TOOL, { params })) as ToolCallResult;
@@ -479,6 +499,234 @@ export async function checkJob(jobId: string): Promise<JobStatusResult> {
     return { status: "failed", error: `Job ${status}` };
   }
   return { status: "running" };
+}
+
+// ── Seedance video generation (generate_video) ──
+
+// Upload a local video file to Higgsfield and return its media_id (same
+// presigned flow as images, but confirmed as type "video").
+export async function uploadVideoToHiggsfield(src: string): Promise<string> {
+  const bytes = await readImageBytes(src); // reads any file's bytes
+  const mime = "video/mp4";
+
+  const upRes = (await callTool(MEDIA_UPLOAD_TOOL, {
+    filename: `ref_${Date.now()}.mp4`,
+    content_type: mime,
+  })) as ToolCallResult;
+  const upParsed = parseToolJson(upRes);
+  const upload = (upParsed?.uploads as Array<Record<string, string>>)?.[0];
+  if (!upload?.upload_url || !upload?.media_id) {
+    throw new Error(`media_upload returned no presigned URL: ${JSON.stringify(upParsed)}`);
+  }
+
+  const put = await fetch(upload.upload_url, {
+    method: "PUT",
+    headers: { "Content-Type": mime },
+    body: new Uint8Array(bytes),
+  });
+  if (!put.ok) {
+    throw new Error(`Video PUT failed (${put.status}): ${await put.text()}`);
+  }
+
+  await callTool(MEDIA_CONFIRM_TOOL, { media_id: upload.media_id, type: "video" });
+  console.log(`[Higgsfield] Uploaded video media ${upload.media_id}`);
+  return upload.media_id;
+}
+
+export interface SubmitVideoOptions {
+  model?: string;
+  imageMediaId: string; // @Image1 — the recreated still (identity + outfit)
+  videoMediaId: string; // @Video1 — the reference video (motion + framing)
+  aspectRatio?: string;
+  duration?: number;
+  imageRole?: string;
+  videoRole?: string;
+}
+
+// Submit a Seedance video-to-video job. Returns the provider job id.
+export async function submitVideoJob(
+  prompt: string,
+  options: SubmitVideoOptions
+): Promise<{ jobId: string }> {
+  // Verified via models_explore: id "seedance_2_0", media roles
+  // image_references / video_references, duration 4-15s.
+  const model =
+    options.model || process.env.HIGGSFIELD_SEEDANCE_MODEL || "seedance_2_0";
+  const imageRole =
+    options.imageRole ||
+    process.env.HIGGSFIELD_SEEDANCE_IMAGE_ROLE ||
+    "image_references";
+  const videoRole =
+    options.videoRole ||
+    process.env.HIGGSFIELD_SEEDANCE_VIDEO_ROLE ||
+    "video_references";
+
+  const params: Record<string, unknown> = {
+    model,
+    prompt,
+    medias: [
+      { value: options.imageMediaId, role: imageRole },
+      { value: options.videoMediaId, role: videoRole },
+    ],
+  };
+  if (options.aspectRatio) params.aspect_ratio = options.aspectRatio;
+  // Seedance 2.0 accepts 4-15s — clamp so auto-matched source durations submit.
+  if (options.duration)
+    params.duration = Math.min(15, Math.max(4, Math.round(options.duration)));
+
+  console.log(`[Higgsfield] Submitting generate_video (${model})`);
+  let result = (await callTool(GENERATE_VIDEO_TOOL, { params })) as ToolCallResult & {
+    structuredContent?: Record<string, unknown>;
+  };
+  if (result.isError) {
+    throw new Error(
+      `generate_video error: ${JSON.stringify(result.content || result)}`
+    );
+  }
+
+  // Higgsfield may interrupt the submission with a "preset recommendation"
+  // (no job submitted!) when the prompt resembles a preset. We always generate
+  // literally: decline the preset and resubmit.
+  const notice = result.structuredContent?.notice as
+    | { type?: string; data?: { preset?: { id?: string; name?: string } } }
+    | undefined;
+  if (notice?.type === "preset_recommendation" && notice.data?.preset?.id) {
+    console.log(
+      `[Higgsfield] Preset recommendation intercepted ("${notice.data.preset.name}") — declining, generating literally`
+    );
+    params.declined_preset_id = notice.data.preset.id;
+    result = (await callTool(GENERATE_VIDEO_TOOL, { params })) as ToolCallResult & {
+      structuredContent?: Record<string, unknown>;
+    };
+    if (result.isError) {
+      throw new Error(
+        `generate_video error (after preset decline): ${JSON.stringify(result.content || result)}`
+      );
+    }
+  }
+
+  // Debug dump: capture the raw response shape so id-extraction issues can be
+  // diagnosed offline (worker console isn't always visible).
+  try {
+    fs.writeFileSync(
+      "./data/debug-generate-video.json",
+      JSON.stringify(result, null, 2)
+    );
+  } catch {
+    // non-fatal
+  }
+
+  // Try content[] JSON first, then structuredContent (some tools only use it).
+  for (const parsed of [parseToolJson(result), result.structuredContent]) {
+    if (!parsed) continue;
+    const direct = parsed.job_id || parsed.id || parsed.task_id;
+    if (direct) return { jobId: String(direct) };
+    const arr =
+      (parsed.jobs as Array<{ id?: string }>) ||
+      (parsed.results as Array<{ id?: string }>) ||
+      (parsed.items as Array<{ id?: string }>);
+    if (Array.isArray(arr) && arr[0]?.id) return { jobId: String(arr[0].id) };
+  }
+
+  // Last resort: scrape a UUID — but NEVER the media ids we just submitted
+  // (Higgsfield dedupes identical uploads, so a media id echoed in the response
+  // is stable across submissions and absolutely not a job id).
+  const raw = JSON.stringify(result);
+  const exclude = new Set([options.imageMediaId, options.videoMediaId]);
+  const uuids = raw.match(new RegExp(UUID_RE.source, "gi")) || [];
+  const candidate = uuids.find((u) => !exclude.has(u));
+  if (candidate) {
+    console.warn(
+      `[Higgsfield] generate_video: job id scraped from raw response (${candidate}) — response shape: ${raw.slice(0, 300)}`
+    );
+    return { jobId: candidate };
+  }
+
+  throw new Error(
+    `Could not extract job id from generate_video response: ${raw.slice(0, 400)}`
+  );
+}
+
+// ── Eligibility: credits balance + cost preflight ──
+
+// Pull the first number out of a tool result (json fields or raw text).
+function extractNumber(
+  parsed: Record<string, unknown> | null,
+  raw: unknown,
+  keys: string[]
+): number | null {
+  if (parsed) {
+    for (const k of keys) {
+      const v = parsed[k];
+      if (typeof v === "number") return v;
+      if (typeof v === "string" && /^\d+(\.\d+)?$/.test(v)) return parseFloat(v);
+    }
+  }
+  const text = JSON.stringify(raw ?? "");
+  const m = text.match(/(\d+(?:\.\d+)?)\s*credits?/i) || text.match(/"(?:cost|credits|balance)"\s*:\s*(\d+(?:\.\d+)?)/i);
+  return m ? parseFloat(m[1]) : null;
+}
+
+// Current credits balance (null if the shape is unrecognized — don't block).
+export async function getCreditsBalance(): Promise<number | null> {
+  try {
+    const res = (await callTool("balance", {})) as ToolCallResult & {
+      structuredContent?: Record<string, unknown>;
+    };
+    const parsed = parseToolJson(res) || res.structuredContent || null;
+    return extractNumber(parsed as Record<string, unknown> | null, res, [
+      "credits",
+      "balance",
+      "available_credits",
+      "available",
+    ]);
+  } catch {
+    return null;
+  }
+}
+
+// Credit cost of a video generation without submitting it (get_cost: true).
+export async function estimateVideoJobCost(
+  prompt: string,
+  options: SubmitVideoOptions
+): Promise<number | null> {
+  try {
+    const model =
+      options.model || process.env.HIGGSFIELD_SEEDANCE_MODEL || "seedance_2_0";
+    const imageRole =
+      options.imageRole ||
+      process.env.HIGGSFIELD_SEEDANCE_IMAGE_ROLE ||
+      "image_references";
+    const videoRole =
+      options.videoRole ||
+      process.env.HIGGSFIELD_SEEDANCE_VIDEO_ROLE ||
+      "video_references";
+    const params: Record<string, unknown> = {
+      model,
+      prompt,
+      get_cost: true,
+      medias: [
+        { value: options.imageMediaId, role: imageRole },
+        { value: options.videoMediaId, role: videoRole },
+      ],
+    };
+    if (options.aspectRatio) params.aspect_ratio = options.aspectRatio;
+    if (options.duration)
+      params.duration = Math.min(15, Math.max(4, Math.round(options.duration)));
+
+    const res = (await callTool(GENERATE_VIDEO_TOOL, { params })) as ToolCallResult & {
+      structuredContent?: Record<string, unknown>;
+    };
+    const parsed = parseToolJson(res) || res.structuredContent || null;
+    return extractNumber(parsed as Record<string, unknown> | null, res, [
+      "cost",
+      "credits",
+      "total_cost",
+      "price",
+    ]);
+  } catch {
+    return null;
+  }
 }
 
 // Preflight the credit cost without submitting a job (get_cost: true).

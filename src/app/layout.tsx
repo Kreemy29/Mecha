@@ -20,6 +20,11 @@ export const metadata: Metadata = {
   description: "AI UGC Content Automation Tool",
 };
 
+export const viewport = {
+  colorScheme: "dark" as const,
+  themeColor: "#131318",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -30,7 +35,10 @@ export default function RootLayout({
       lang="en"
       className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased dark`}
     >
-      <body className="min-h-screen bg-background text-foreground">
+      <body
+        className="min-h-screen bg-background text-foreground"
+        suppressHydrationWarning
+      >
         <TooltipProvider>
           <div className="min-h-screen flex flex-col">
             <FloatingNav />

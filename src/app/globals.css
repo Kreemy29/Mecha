@@ -48,7 +48,7 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-:root {
+.light {
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0 / 60%);
@@ -83,7 +83,40 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* Night mode is the default — applied to :root directly so it holds even if a
+   browser extension strips the `dark` class off <html>.
+   Every color declares a plain hex/rgba FALLBACK first, then the oklch value:
+   old browsers that don't parse oklch() keep the fallback instead of falling
+   back to a white page. */
+:root,
 .dark {
+  --radius: 0.75rem;
+  --background: #131318;
+  --foreground: #ececf0;
+  --card: rgba(255, 255, 255, 0.05);
+  --card-foreground: #ececf0;
+  --popover: rgba(28, 28, 38, 0.9);
+  --popover-foreground: #ececf0;
+  --primary: #a78bfa;
+  --primary-foreground: #fafafa;
+  --secondary: rgba(255, 255, 255, 0.08);
+  --secondary-foreground: #ececf0;
+  --muted: rgba(255, 255, 255, 0.06);
+  --muted-foreground: #9a9aa5;
+  --accent: rgba(167, 139, 250, 0.15);
+  --accent-foreground: #ececf0;
+  --destructive: #f87171;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.1);
+  --ring: rgba(167, 139, 250, 0.4);
+  --sidebar: rgba(26, 26, 34, 0.8);
+  --sidebar-foreground: #ececf0;
+  --sidebar-primary: #a78bfa;
+  --sidebar-primary-foreground: #fafafa;
+  --sidebar-accent: rgba(255, 255, 255, 0.08);
+  --sidebar-accent-foreground: #ececf0;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: rgba(167, 139, 250, 0.4);
   --background: oklch(0.13 0.005 270);
   --foreground: oklch(0.93 0 0);
   --card: oklch(1 0 0 / 5%);
@@ -129,6 +162,19 @@
   }
 }
 
+/* Hard dark-mode enforcement (outside @layer so it wins the cascade):
+   - color-scheme stops the browser's own auto-dark/light rewriting
+   - !important beats styles injected by extensions/page tweakers
+   - plain hex so it works even without oklch() support */
+html {
+  color-scheme: dark;
+}
+html,
+body {
+  background-color: #131318 !important;
+  color: #ececf0 !important;
+}
+
 /* ── Animated gradient background ── */
 body::before {
   content: "";
@@ -144,28 +190,35 @@ body::before {
 
 /* ── Glassmorphism utilities ── */
 .glass {
+  background: rgba(255, 255, 255, 0.04);
   background: oklch(1 0 0 / 4%);
   backdrop-filter: blur(20px) saturate(1.4);
   -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border: 1px solid oklch(1 0 0 / 8%);
 }
 
 .glass-strong {
+  background: rgba(255, 255, 255, 0.07);
   background: oklch(1 0 0 / 7%);
   backdrop-filter: blur(32px) saturate(1.6);
   -webkit-backdrop-filter: blur(32px) saturate(1.6);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border: 1px solid oklch(1 0 0 / 12%);
 }
 
 .glass-subtle {
+  background: rgba(255, 255, 255, 0.03);
   background: oklch(1 0 0 / 3%);
   backdrop-filter: blur(12px) saturate(1.2);
   -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border: 1px solid oklch(1 0 0 / 6%);
 }
 
 /* ── Override shadcn card to be glass ── */
 [data-slot="card"] {
+  background: rgba(255, 255, 255, 0.04) !important;
   background: oklch(1 0 0 / 4%) !important;
   backdrop-filter: blur(20px) saturate(1.4);
   -webkit-backdrop-filter: blur(20px) saturate(1.4);

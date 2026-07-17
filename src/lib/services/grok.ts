@@ -92,32 +92,83 @@ Rules:
 Example input: "outdoor portrait"
 Example output: ["woman golden hour rooftop portrait", "woman urban street style candid", "woman park bench editorial portrait", "woman sunset beach windblown hair", "woman rainy day city portrait moody"]`;
 
-// The operator's "Visual Subject Swap" master prompt — drives seedream-style
-// recreation where the Scene Reference's pose/composition is kept but the subject
-// is swapped to the Face (and optional Body) Reference.
-const SUBJECT_SWAP_SYSTEM = `You are an expert prompt engineer for the AI image generator 'seedream'. Your task is to write a prompt that performs a **Visual Subject Swap**.
-You will be given two or three images:
-1. **Scene Reference**: Defines the EXACT POSE, EYE DIRECTION, FACIAL EXPRESSION, CLOTHING, ACTION, ENVIRONMENT, LIGHTING, CAMERA STYLE, and PHOTOGRAPHIC FLAWS.
-2. **Face Reference**: Defines the SUBJECT IDENTITY (Face structure, Hair, Age, Ethnicity, Skin Tone).
-3. **Body Reference (Optional)**: If provided, this defines the EXACT BODY BUILD, PHYSIQUE, MUSCLE DEFINITION, and BODY TYPE.
-You may also receive:
-4. **Setting Description (Optional)**: A detailed description of the background/environment to use instead of the Scene Reference's background.
-CRITICAL INSTRUCTION:
-Describe the person seen in the Face Reference (and Body Reference if present) performing the actions seen in the Scene Reference.
-RULES FOR BODY REFERENCE:
-- IF PROVIDED: Extract and describe the EXACT body build, muscle definition, and physique. Ignore the body from the Face Reference.
-- IF NOT: Use the body build from the Face Reference.
-RULES FOR SETTING DESCRIPTION:
-- IF PROVIDED: Use this EXACT description for the background instead of the Scene Reference's background.
-- IF NOT: Use the Scene Reference's background.
-RULES FOR SCENE REFERENCE:
-- DO NOT describe the Scene Reference person, BUT DO describe their facial expression, eye direction, and exact pose.
-- The goal is to recreate the Scene Reference exactly (same composition, lighting, background, vibe) but with the subject swapped.
-- MANDATORY: Explicitly describe the EXACT pose, eye direction, and facial expression.
-- PHOTOGRAPHIC EXECUTION: Describe the photographic style & flaws (grain, motion blur, overexposure, etc.)
-The Formula:
-[1. Context/Vibe] + [2. Detailed Subject (Face Ref + Body Ref)] + [3. Exact Pose, Eye Direction & Expression from Scene Ref] + [4. Detailed Face Description] + [5. Clothing & Style from Scene Ref] + [6. Setting (use Setting Description if provided, otherwise Scene Ref)] + [7. Photographic Execution & Flaws from Scene Ref]
-Output: JSON object with a single key "prompt" containing the generated string.`;
+// Placeholder replaced (both in the prompt and post-parse) with the selected
+// Higgsfield character's name, so the LoRA reference matches the chosen persona.
+const CHARACTER_NAME_TOKEN = "{{CHARACTER_NAME}}";
+
+// The operator's structured "reverse-engineer to JSON" recreation prompt. Grok
+// analyzes the reference image and emits the strict JSON schema below. The
+// character LoRA name is injected from the selected Higgsfield character.
+const SUBJECT_SWAP_SYSTEM = `Role: You are an expert AI Prompt Engineer specializing in reverse-engineering reference photos into hyper-accurate text prompts for image generation models. Your goal is to analyze any image provided by the user and recreate its composition flawlessly.
+
+Task Instructions:
+1. Analyze the user's reference image for subject details, clothing, body posture, background scenery, camera perspective, and lighting quality.
+2. Output a single, perfectly formatted JSON block following the strict structure template provided below.
+3. STRICT CONSTRAINT 1 (No Tattoos — ABSOLUTE): This is the single most important rule. The subject's skin is ALWAYS clean, bare, smooth, and completely unmarked. Even if the reference image clearly shows tattoos, ink, body art, markings, lettering, or symbols on the skin, you MUST completely ignore them and describe the skin as smooth and unmarked. NEVER mention, describe, hint at, or imply tattoos or any skin markings in ANY field. CRITICAL: Do NOT write the words "tattoo", "ink", "body art", or any skin-marking term ANYWHERE in your output — not in the descriptions AND not in the negative_prompt array (the image model reads the whole output as positive text, so even listing the word causes it). Instead, reinforce cleanliness POSITIVELY: put "smooth clean unmarked skin" in both the subject description and anatomy fields.
+4. STRICT CONSTRAINT 2 (No Hair Color): You may describe hair length, volume, style (e.g., straight, wavy, braids, pigtails, bangs), but you must NEVER mention any hair color (e.g., blonde, brunette, black, brown). You must explicitly include "hair color description" in the negative_prompt array.
+4b. STRICT CONSTRAINT 2b (No Glasses / Eyewear): The subject NEVER wears glasses, eyeglasses, sunglasses or any eyewear. Even if the reference image shows them, ignore them completely — describe the eyes and face as bare, with no eyewear. Do NOT write the words "glasses", "eyeglasses", "sunglasses", "eyewear", "spectacles" or "shades" ANYWHERE in your output (not in descriptions and not in negative_prompt — the model reads the whole output as positive text). Simply describe the face without any eyewear.
+5. STRICT CONSTRAINT 3 (Character LORA): Always include the "loras" block exactly as shown in the template. Set "character_lora" to "<lora:${CHARACTER_NAME_TOKEN}:1.0>" using the CHARACTER NAME provided in the user message verbatim — do not invent, translate, or alter it.
+6. BACKGROUND REFERENCE (only when one is provided): You may be given a separate BACKGROUND REFERENCE image — a location/room, usually with no people in it. When it is provided:
+   - The "environment.location" field MUST describe THAT location in rich detail (room type, surfaces, furniture, props, depth, what is visible behind and beside the subject). NEVER describe the Scene Reference's background.
+   - The "lighting" fields MUST match that location's light — its direction, colour, softness and sources — so the subject is lit believably for that space.
+   - Write it as though the subject was genuinely photographed standing in that place: the result must read as one real photo taken there, not a cut-out pasted onto a backdrop.
+   - Take ONLY the environment and its light from the Background Reference. Everything else — pose, body position, expression, eye direction, camera angle, framing, crop and photographic style/flaws — still comes from the Scene Reference.
+
+Output Format Template:
+{
+  "subject": {
+    "name": "",
+    "description": "",
+    "attire": "",
+    "anatomy": "",
+    "accessories": ""
+  },
+  "pose": {
+    "type": "",
+    "orientation": "",
+    "expression": "",
+    "arms": "",
+    "legs": "",
+    "spine": ""
+  },
+  "environment": {
+    "location": ""
+  },
+  "camera": {
+    "type": "",
+    "lens": "",
+    "dof": ""
+  },
+  "lighting": {
+    "sources": [],
+    "quality": ""
+  },
+  "output": {
+    "ratio": "3:4",
+    "orientation": "Portrait",
+    "style": "Authentic, casual snapshot appearance, realistic unedited skin texture, sharp clothing fabric detail, no professional studio filters."
+  },
+  "loras": {
+    "character_lora": "<lora:${CHARACTER_NAME_TOKEN}:1.0>"
+  },
+  "controls": {
+    "pose": "DWPose (1.0)",
+    "depth": "ZoeDepth (0.8)"
+  },
+  "negative_prompt": [
+    "body averaging",
+    "hair color description",
+    "studio lighting",
+    "artificial bokeh",
+    "heavy skin smoothing",
+    "airbrushed appearance",
+    "3d render",
+    "illustration",
+    "drawing"
+  ]
+}
+
+Output ONLY the JSON object, no other text.`;
 
 const REWRITE_PROMPT_SYSTEM = `You are a prompt engineer improving AI image generation prompts based on operator feedback. Given the previous prompt and the operator's rejection notes, write an improved prompt that addresses the feedback.
 
@@ -194,6 +245,95 @@ export interface SwapPromptInput {
   faceRefUrl: string; // Character's Soul reference image (identity)
   bodyRefUrl?: string; // Optional body reference
   settingDescription?: string; // Optional background override
+  characterName?: string; // Selected Higgsfield character — used as the LoRA name
+  outfitOverride?: string; // Force this outfit instead of the reference's clothing
+  backgroundRefUrl?: string; // Location image — becomes the scene's environment
+  backgroundDescription?: string; // Frozen location text — used verbatim (preferred)
+}
+
+// Describe a location image ONCE so the text can be frozen and reused. Running
+// this per-generation is what caused backgrounds to drift between stills.
+const BACKGROUND_DESCRIBE_SYSTEM = `You describe a location/room photograph so it can be reproduced consistently by an image generator.
+
+Rules:
+- Describe ONLY the place: room type, walls, floor, surfaces, furniture, props, what is visible in the background and at the edges, sense of depth, and the lighting (its sources, direction, colour temperature and softness).
+- Do NOT describe any person, body, clothing, or pose — even if someone appears in the photo, ignore them completely.
+- Be concrete and specific (materials, colours, objects, layout) so the same room can be re-rendered from the text alone.
+- One dense paragraph, 40-90 words. No preamble, no bullet points, no commentary.
+
+Output ONLY the description text.`;
+
+export async function describeBackground(imageUrl: string): Promise<string> {
+  const content = await chatCompletion(
+    [
+      { role: "system", content: BACKGROUND_DESCRIBE_SYSTEM },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Describe this location:" },
+          { type: "image_url", image_url: { url: await toDataUri(imageUrl) } },
+        ],
+      },
+    ],
+    { model: VISION_MODEL, temperature: 0.2, maxTokens: 400 }
+  );
+  return content.trim();
+}
+
+// Banned terms purged from every output field. On Higgsfield (no negative-prompt
+// support) even the WORD "tattoo"/"glasses" in the output backfires, so we strip
+// them everywhere. Tattoos/skin-markings + eyewear.
+const BANNED_TERMS_RE =
+  /\b(tattoos?|ink(?:ed)?|body ?art|body markings?|skin markings?|markings?|glasses|eyeglasses|eyewear|spectacles|sunglasses|shades)\b/gi;
+
+function scrubBanned(v: unknown): unknown {
+  if (typeof v === "string") {
+    return v
+      .replace(BANNED_TERMS_RE, "")
+      .replace(/\s{2,}/g, " ")
+      .replace(/\s+([.,])/g, "$1")
+      .trim();
+  }
+  if (Array.isArray(v)) {
+    return v.map(scrubBanned).filter((x) => x !== "" && x != null);
+  }
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    for (const k of Object.keys(o)) o[k] = scrubBanned(o[k]);
+    return o;
+  }
+  return v;
+}
+
+// Force the required constraints into the parsed JSON regardless of what Grok
+// returned: correct character LoRA name, no tattoo terms anywhere, and the
+// mandatory hair-color negative.
+function enforceRecreationConstraints(
+  obj: Record<string, unknown>,
+  characterName: string,
+  backgroundDescription?: string
+): Record<string, unknown> {
+  // Purge every banned reference (tattoos/skin-markings, eyewear) from all fields.
+  scrubBanned(obj);
+
+  // Force the frozen background text in verbatim. Grok paraphrases even when
+  // told not to, and any drift here changes the rendered room — so we overwrite
+  // rather than trust the model.
+  if (backgroundDescription?.trim()) {
+    const env = (obj.environment as Record<string, unknown>) || {};
+    env.location = backgroundDescription.trim();
+    obj.environment = env;
+  }
+
+  const loraName = characterName?.trim() || "character";
+  obj.loras = { character_lora: `<lora:${loraName}:1.0>` };
+
+  const neg = Array.isArray(obj.negative_prompt)
+    ? (obj.negative_prompt as string[])
+    : [];
+  if (!neg.includes("hair color description")) neg.push("hair color description");
+  obj.negative_prompt = neg;
+  return obj;
 }
 
 // Visual Subject Swap — vision call that looks at the actual reference images.
@@ -231,16 +371,47 @@ export async function generateSwapPrompt(
     });
   }
 
-  if (input.settingDescription?.trim()) {
+  // A frozen background description wins over the image: it guarantees the same
+  // backdrop text (and therefore the same room) on every generation.
+  if (input.backgroundDescription?.trim()) {
     parts.push({
       type: "text",
-      text: `SETTING DESCRIPTION (use this background instead of the Scene Reference's): ${input.settingDescription}`,
+      text: `BACKGROUND DESCRIPTION (MANDATORY environment — REPLACES the Scene Reference's background): set environment.location to EXACTLY this text, verbatim, unchanged:\n\n"${input.backgroundDescription.trim()}"\n\nMatch the lighting fields to the light described there so the subject reads as genuinely photographed in that place. Keep pose, camera, framing and photographic style from the Scene Reference.`,
+    });
+  } else if (input.backgroundRefUrl) {
+    parts.push({
+      type: "text",
+      text: "BACKGROUND REFERENCE (MANDATORY environment): this location REPLACES the Scene Reference's background. Describe THIS place in environment.location, and match lighting to it. The subject must read as genuinely photographed here. Keep pose, camera, framing and photographic style from the Scene Reference:",
+    });
+    parts.push({
+      type: "image_url",
+      image_url: { url: await toDataUri(input.backgroundRefUrl) },
     });
   }
 
+  if (input.settingDescription?.trim()) {
+    parts.push({
+      type: "text",
+      text: `CHARACTER IDENTITY NOTES (subject description — obey the no-hair-color and no-tattoo constraints): ${input.settingDescription}`,
+    });
+  }
+
+  if (input.outfitOverride?.trim()) {
+    parts.push({
+      type: "text",
+      text: `OUTFIT OVERRIDE (MANDATORY): Dress the subject in EXACTLY this outfit — the subject.attire field MUST describe: "${input.outfitOverride}". Completely ignore and replace any clothing seen in the Scene Reference; keep the pose, body, setting, and lighting from the Scene Reference.`,
+    });
+  }
+
+  const characterName = input.characterName?.trim() || "character";
   parts.push({
     type: "text",
-    text: 'Now produce the Visual Subject Swap prompt. Output ONLY the JSON object {"prompt": "..."}.',
+    text: `CHARACTER NAME (use this EXACT value verbatim for loras.character_lora): ${characterName}`,
+  });
+
+  parts.push({
+    type: "text",
+    text: "Now analyze the reference image and produce the recreation JSON per the template. Output ONLY the JSON object.",
   });
 
   const content = await chatCompletion(
@@ -252,10 +423,35 @@ export async function generateSwapPrompt(
   );
 
   const json = extractJson(content);
-  if (json && typeof json.prompt === "string") return json.prompt;
+  if (json) {
+    // Guarantee the LoRA name, mandatory negatives, and the frozen background
+    // text no matter what Grok emitted.
+    const enforced = enforceRecreationConstraints(
+      json,
+      characterName,
+      input.backgroundDescription
+    );
+    return JSON.stringify(enforced, null, 2);
+  }
 
   // Fallback: return raw content if it isn't valid JSON
   return content;
+}
+
+// ── Seedance video prompt (static, operator-authored) ──
+// No Grok call: Higgsfield reads the linked @[Image 1]/@[Video 1] elements
+// directly, so it doesn't need a written-out movement sequence. Grok-authored
+// technical prompts also got taken literally (e.g. "pixel projection" /
+// "geometry" produced a 3D wireframe render), so we keep this plain and simple.
+const SEEDANCE_TEMPLATE = `Animate the subject in @[Image 1](image_1) using the motion from @[Video 1](video_1).
+
+Keep the movements exactly the same as @[Video 1](video_1).
+
+Maintain the facial identity, skin texture, and features of as the primary visual reference throughout the entire duration.`;
+
+// Returns the Seedance prompt. Deterministic — no LLM call, no frame sampling.
+export async function generateSeedancePrompt(): Promise<string> {
+  return SEEDANCE_TEMPLATE;
 }
 
 // Text-only recreation fallback (when there's no image to look at).

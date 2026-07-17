@@ -10,6 +10,7 @@ import {
   Users,
   Layers,
   Settings,
+  Shirt,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +19,7 @@ const navItems = [
   { href: "/images", label: "Images", icon: Image },
   { href: "/talking-head", label: "Talking Head", icon: Video },
   { href: "/motion-capture", label: "Motion Capture", icon: Clapperboard },
+  { href: "/seedance", label: "Seedance", icon: Shirt },
   { href: "/characters", label: "Characters", icon: Users },
   { href: "/presets", label: "Presets", icon: Layers },
   { href: "/settings", label: "Settings", icon: Settings },

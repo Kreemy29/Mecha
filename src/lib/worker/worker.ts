@@ -8,6 +8,9 @@ import { processJob, findResumableJobs } from "./job-runner.js";
 import { registerProvider } from "./providers.js";
 import { FalProvider } from "./fal-provider.js";
 import { HiggsfieldProvider } from "./higgsfield-provider.js";
+import { RunningHubProvider } from "./runninghub-provider.js";
+import { SeedanceProvider } from "./seedance-provider.js";
+import { KieProvider } from "./kie-provider.js";
 
 const QUEUE_POLL_INTERVAL = 2000;
 
@@ -86,6 +89,9 @@ async function main() {
   // lazily per-job in the job runner (e.g. "higgsfield:soul_2", "fal:nano-banana-2").
   registerProvider(new FalProvider("nano-banana-pro"));
   registerProvider(new HiggsfieldProvider("soul_2"));
+  registerProvider(new RunningHubProvider());
+  registerProvider(new SeedanceProvider());
+  registerProvider(new KieProvider());
 
   await initQueues();
   await resumeInterruptedJobs();

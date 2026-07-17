@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -34,6 +34,7 @@ import {
   Wand,
   Layers as LayersIcon,
   Flame,
+  Upload,
 } from "lucide-react";
 
 interface Character {
@@ -121,6 +122,9 @@ export default function ImagesPage() {
   const [selectedRefs, setSelectedRefs] = useState<Set<number>>(new Set());
   const [loadingRefs, setLoadingRefs] = useState(false);
   const [searchingQuery, setSearchingQuery] = useState<string | null>(null);
+  const [refSource, setRefSource] = useState<"pinterest" | "upload">("pinterest");
+  const [uploading, setUploading] = useState(false);
+  const refFileInputRef = useRef<HTMLInputElement>(null);
 
   // Recreation prompts
   const [recreationPrompts, setRecreationPrompts] = useState<
@@ -240,6 +244,28 @@ export default function ImagesPage() {
     }
   };
 
+  // ── Step 3 (alt): upload local images as references ──
+  const handleUploadRefs = async (files: FileList) => {
+    setUploading(true);
+    try {
+      const form = new FormData();
+      Array.from(files).forEach((f) => form.append("files", f));
+      const res = await fetch("/api/references/upload", {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      const added: PinterestResult[] = data.results || [];
+      setPinterestResults((prev) => [...prev, ...added]);
+      toast.success(`Uploaded ${added.length} image${added.length === 1 ? "" : "s"}`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const toggleRef = (index: number) => {
     setSelectedRefs((prev) => {
       const next = new Set(prev);
@@ -278,6 +304,7 @@ export default function ImagesPage() {
             sceneRefUrl: ref.imageUrl || ref.thumbnailUrl,
             faceRefUrl,
             settingDescription: selectedCharacter.featureProfile,
+            characterName: selectedCharacter.name,
           }),
         });
         const data = await res.json();
@@ -751,27 +778,81 @@ export default function ImagesPage() {
                   </p>
                 )}
               </div>
-              <div className="flex gap-2">
-                <Button
-                  onClick={handleFetchReferences}
-                  disabled={loadingRefs}
-                  size="sm"
-                  variant={pinterestResults.length > 0 ? "outline" : "default"}
-                  className={
-                    pinterestResults.length > 0
-                      ? "rounded-xl border-white/10 gap-2"
-                      : "rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
-                  }
-                >
-                  {loadingRefs ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : pinterestResults.length > 0 ? (
-                    <RotateCcw className="h-4 w-4" />
-                  ) : (
-                    <Download className="h-4 w-4" />
-                  )}
-                  {pinterestResults.length > 0 ? "Re-fetch" : "Fetch References"}
-                </Button>
+              <div className="flex gap-2 items-center flex-wrap">
+                {/* Reference source toggle */}
+                <div className="glass rounded-xl p-1 flex text-xs">
+                  <button
+                    onClick={() => setRefSource("pinterest")}
+                    className={`px-3 py-1.5 rounded-lg transition-colors ${
+                      refSource === "pinterest"
+                        ? "bg-white/10 text-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Pinterest
+                  </button>
+                  <button
+                    onClick={() => setRefSource("upload")}
+                    className={`px-3 py-1.5 rounded-lg transition-colors ${
+                      refSource === "upload"
+                        ? "bg-white/10 text-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Upload
+                  </button>
+                </div>
+
+                {refSource === "pinterest" ? (
+                  <Button
+                    onClick={handleFetchReferences}
+                    disabled={loadingRefs}
+                    size="sm"
+                    variant={pinterestResults.length > 0 ? "outline" : "default"}
+                    className={
+                      pinterestResults.length > 0
+                        ? "rounded-xl border-white/10 gap-2"
+                        : "rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+                    }
+                  >
+                    {loadingRefs ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : pinterestResults.length > 0 ? (
+                      <RotateCcw className="h-4 w-4" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
+                    {pinterestResults.length > 0 ? "Re-fetch" : "Fetch References"}
+                  </Button>
+                ) : (
+                  <>
+                    <input
+                      ref={refFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files?.length) handleUploadRefs(e.target.files);
+                        e.target.value = "";
+                      }}
+                    />
+                    <Button
+                      onClick={() => refFileInputRef.current?.click()}
+                      disabled={uploading}
+                      size="sm"
+                      className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+                    >
+                      {uploading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Upload className="h-4 w-4" />
+                      )}
+                      Upload Images
+                    </Button>
+                  </>
+                )}
+
                 {selectedRefs.size > 0 && (
                   <Button
                     onClick={() => setStep("recreation")}
@@ -786,9 +867,11 @@ export default function ImagesPage() {
             </div>
           </CardHeader>
           <CardContent>
-            {pinterestResults.length === 0 && !loadingRefs ? (
+            {pinterestResults.length === 0 && !loadingRefs && !uploading ? (
               <p className="text-sm text-muted-foreground text-center py-8">
-                Click fetch to search Pinterest with your generated prompts.
+                {refSource === "upload"
+                  ? "Upload images from your computer to use as references, then select the ones to recreate."
+                  : "Click fetch to search Pinterest with your generated prompts."}
               </p>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">

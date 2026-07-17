@@ -2,8 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { generateSwapPrompt } from "@/lib/services/grok";
 
 export async function POST(request: NextRequest) {
-  const { sceneRefUrl, faceRefUrl, bodyRefUrl, settingDescription } =
-    await request.json();
+  const {
+    sceneRefUrl,
+    faceRefUrl,
+    bodyRefUrl,
+    settingDescription,
+    characterName,
+    outfitOverride,
+    backgroundRefUrl,
+    backgroundDescription,
+  } = await request.json();
 
   if (!sceneRefUrl || !faceRefUrl) {
     return NextResponse.json(
@@ -18,6 +26,10 @@ export async function POST(request: NextRequest) {
       faceRefUrl,
       bodyRefUrl,
       settingDescription,
+      characterName,
+      outfitOverride,
+      backgroundRefUrl,
+      backgroundDescription,
     });
     return NextResponse.json({ prompt });
   } catch (err: unknown) {
