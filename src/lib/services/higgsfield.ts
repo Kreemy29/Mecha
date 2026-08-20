@@ -278,6 +278,11 @@ export async function listCharacters(
 const GENERATE_IMAGE_TOOL = "generate_image";
 const GENERATE_VIDEO_TOOL = "generate_video";
 const JOB_DISPLAY_TOOL = "job_display";
+// Kling 3.0 Motion Control — the Higgsfield alternative to RunningHub's Wan
+// Animate. Verified schema: { params: { image_id, motion_video_id,
+// resolution: 720p|1080p, scene_control: image|video } }. Takes NO prompt and
+// no count; the scene is derived from whichever source scene_control names.
+const MOTION_CONTROL_TOOL = "motion_control";
 
 const UUID_RE =
   /[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi;
@@ -350,7 +355,9 @@ export async function uploadImageToHiggsfield(src: string): Promise<string> {
   const put = await fetch(upload.upload_url, {
     method: "PUT",
     headers: { "Content-Type": mime },
-    body: bytes,
+    // Uint8Array, not Buffer — fetch's BodyInit doesn't accept a Node Buffer
+    // (the video upload below already does it this way).
+    body: new Uint8Array(bytes),
   });
   if (!put.ok) {
     throw new Error(`Media PUT failed (${put.status}): ${await put.text()}`);
@@ -536,7 +543,9 @@ export async function uploadVideoToHiggsfield(src: string): Promise<string> {
 export interface SubmitVideoOptions {
   model?: string;
   imageMediaId: string; // @Image1 — the recreated still (identity + outfit)
-  videoMediaId: string; // @Video1 — the reference video (motion + framing)
+  // @Video1 — the reference video (motion + framing). Omitted for
+  // image-to-video, where the prompt alone carries the motion.
+  videoMediaId?: string;
   aspectRatio?: string;
   duration?: number;
   imageRole?: string;
@@ -566,7 +575,9 @@ export async function submitVideoJob(
     prompt,
     medias: [
       { value: options.imageMediaId, role: imageRole },
-      { value: options.videoMediaId, role: videoRole },
+      ...(options.videoMediaId
+        ? [{ value: options.videoMediaId, role: videoRole }]
+        : []),
     ],
   };
   if (options.aspectRatio) params.aspect_ratio = options.aspectRatio;
@@ -632,7 +643,9 @@ export async function submitVideoJob(
   // (Higgsfield dedupes identical uploads, so a media id echoed in the response
   // is stable across submissions and absolutely not a job id).
   const raw = JSON.stringify(result);
-  const exclude = new Set([options.imageMediaId, options.videoMediaId]);
+  const exclude = new Set(
+    [options.imageMediaId, options.videoMediaId].filter(Boolean)
+  );
   const uuids = raw.match(new RegExp(UUID_RE.source, "gi")) || [];
   const candidate = uuids.find((u) => !exclude.has(u));
   if (candidate) {
@@ -644,6 +657,73 @@ export async function submitVideoJob(
 
   throw new Error(
     `Could not extract job id from generate_video response: ${raw.slice(0, 400)}`
+  );
+}
+
+// ── Kling 3.0 Motion Control (motion_control) ──
+
+export interface SubmitMotionControlOptions {
+  imageMediaId: string; // the approved character still
+  videoMediaId: string; // the driving motion clip
+  resolution?: "720p" | "1080p";
+  // Where the background comes from: the still ("image") or the driving clip
+  // ("video"). "image" keeps the backdrop we generated, which is what the
+  // recreation pipeline wants — the still already carries the chosen setting.
+  sceneControl?: "image" | "video";
+}
+
+export async function submitMotionControlJob(
+  options: SubmitMotionControlOptions
+): Promise<{ jobId: string }> {
+  const params: Record<string, unknown> = {
+    image_id: options.imageMediaId,
+    motion_video_id: options.videoMediaId,
+    resolution: options.resolution || "720p",
+    scene_control: options.sceneControl || "image",
+  };
+
+  console.log(
+    `[Higgsfield] Submitting motion_control (Kling 3.0, ${params.resolution}, scene=${params.scene_control})`
+  );
+  const result = (await callTool(MOTION_CONTROL_TOOL, { params })) as ToolCallResult & {
+    structuredContent?: Record<string, unknown>;
+  };
+  if (result.isError) {
+    throw new Error(
+      `motion_control error: ${JSON.stringify(result.content || result)}`
+    );
+  }
+
+  // Same extraction ladder as generate_video: content[] JSON, then
+  // structuredContent, then a UUID scrape that must never return one of the
+  // media ids we just submitted (Higgsfield echoes those back).
+  for (const parsed of [parseToolJson(result), result.structuredContent]) {
+    if (!parsed) continue;
+    const direct = parsed.job_id || parsed.id || parsed.task_id;
+    if (direct) return { jobId: String(direct) };
+    const arr =
+      (parsed.jobs as Array<{ id?: string }>) ||
+      (parsed.results as Array<{ id?: string }>) ||
+      (parsed.items as Array<{ id?: string }>);
+    if (Array.isArray(arr) && arr[0]?.id) return { jobId: String(arr[0].id) };
+  }
+
+  const raw = JSON.stringify(result);
+  const exclude = new Set(
+    [options.imageMediaId, options.videoMediaId].filter(Boolean)
+  );
+  const candidate = (raw.match(new RegExp(UUID_RE.source, "gi")) || []).find(
+    (u) => !exclude.has(u)
+  );
+  if (candidate) {
+    console.warn(
+      `[Higgsfield] motion_control: job id scraped from raw response (${candidate})`
+    );
+    return { jobId: candidate };
+  }
+
+  throw new Error(
+    `Could not extract job id from motion_control response: ${raw.slice(0, 400)}`
   );
 }
 
@@ -707,7 +787,9 @@ export async function estimateVideoJobCost(
       get_cost: true,
       medias: [
         { value: options.imageMediaId, role: imageRole },
-        { value: options.videoMediaId, role: videoRole },
+        ...(options.videoMediaId
+          ? [{ value: options.videoMediaId, role: videoRole }]
+          : []),
       ],
     };
     if (options.aspectRatio) params.aspect_ratio = options.aspectRatio;

@@ -30,13 +30,16 @@ export class SeedanceProvider implements JobProvider {
     if (!job.referenceImagePath) {
       throw new Error("Seedance: missing approved still (referenceImagePath)");
     }
-    if (!job.referenceVideoPath) {
-      throw new Error("Seedance: missing reference video (referenceVideoPath)");
-    }
 
-    console.log("[SeedanceProvider] Uploading still + video to Higgsfield...");
+    // No reference video = image-to-video: the prompt alone carries the motion.
+    const isImageToVideo = !job.referenceVideoPath;
+    console.log(
+      `[SeedanceProvider] Uploading still${isImageToVideo ? "" : " + video"} to Higgsfield...`
+    );
     const imageMediaId = await uploadImageToHiggsfield(job.referenceImagePath);
-    const videoMediaId = await uploadVideoToHiggsfield(job.referenceVideoPath);
+    const videoMediaId = isImageToVideo
+      ? undefined
+      : await uploadVideoToHiggsfield(job.referenceVideoPath!);
 
     const submitOptions = {
       imageMediaId,

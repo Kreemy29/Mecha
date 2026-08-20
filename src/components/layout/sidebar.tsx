@@ -11,14 +11,20 @@ import {
   Layers,
   Settings,
   Shirt,
+  LayoutGrid,
+  Megaphone,
 } from "lucide-react";
+import { InstagramIcon } from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/instagram", label: "Instagram", icon: InstagramIcon },
+  { href: "/requests", label: "Requests", icon: Megaphone },
   { href: "/images", label: "Images", icon: Image },
   { href: "/talking-head", label: "Talking Head", icon: Video },
   { href: "/motion-capture", label: "Motion Capture", icon: Clapperboard },
+  { href: "/formats", label: "Formats", icon: LayoutGrid },
   { href: "/seedance", label: "Seedance", icon: Shirt },
   { href: "/characters", label: "Characters", icon: Users },
   { href: "/presets", label: "Presets", icon: Layers },

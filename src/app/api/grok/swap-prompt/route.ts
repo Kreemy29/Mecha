@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateSwapPrompt } from "@/lib/services/grok";
+import { coercePromptProvider } from "@/lib/services/llm";
 
 export async function POST(request: NextRequest) {
   const {
@@ -9,8 +10,10 @@ export async function POST(request: NextRequest) {
     settingDescription,
     characterName,
     outfitOverride,
+    poseOverride,
     backgroundRefUrl,
     backgroundDescription,
+    provider,
   } = await request.json();
 
   if (!sceneRefUrl || !faceRefUrl) {
@@ -28,8 +31,10 @@ export async function POST(request: NextRequest) {
       settingDescription,
       characterName,
       outfitOverride,
+      poseOverride,
       backgroundRefUrl,
       backgroundDescription,
+      provider: coercePromptProvider(provider),
     });
     return NextResponse.json({ prompt });
   } catch (err: unknown) {

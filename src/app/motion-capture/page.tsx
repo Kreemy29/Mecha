@@ -21,6 +21,7 @@ import {
   Sparkles,
   Trash2,
   CheckCircle2,
+  Brush,
 } from "lucide-react";
 
 interface Character {
@@ -62,6 +63,10 @@ interface VideoItem {
   stillJobs: Job[];
   approvedStillPath: string | null;
   animateJob: Job | null;
+  // Frame-extraction window, so it can be re-run from any point in the clip.
+  frameStart?: number;
+  frameWindow?: number;
+  extracting?: boolean;
 }
 
 type Step = "setup" | "videos" | "work" | "results";
@@ -108,6 +113,15 @@ export default function MotionCapturePage() {
   const [reelUrl, setReelUrl] = useState("");
   const [intaking, setIntaking] = useState(false);
   const [animating, setAnimating] = useState(false);
+
+  // Which motion-transfer engine drives the batch. Both take the same inputs
+  // (approved still + driving clip), so this is a per-batch swap.
+  const [animateEngine, setAnimateEngine] = useState<"runninghub" | "kling">(
+    "runninghub"
+  );
+  const [klingResolution, setKlingResolution] = useState<"720p" | "1080p">(
+    "720p"
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Keep a ref to the latest videos so the single polling interval isn't stale.
@@ -135,6 +149,55 @@ export default function MotionCapturePage() {
   useEffect(() => {
     fetchInitialData();
   }, [fetchInitialData]);
+
+  // ── Import handoff from the Instagram page ──
+  // /motion-capture?import=<videoPath>&name=...&duration=... — the video is
+  // already downloaded; just extract frames and drop it into the batch.
+  const importedRef = useRef(false);
+  useEffect(() => {
+    if (importedRef.current) return;
+    const sp = new URLSearchParams(window.location.search);
+    const videoPath = sp.get("import");
+    if (!videoPath) return;
+    importedRef.current = true;
+    const name = sp.get("name") || "instagram import";
+    const duration = parseFloat(sp.get("duration") || "0") || 0;
+    window.history.replaceState({}, "", window.location.pathname);
+    (async () => {
+      setIntaking(true);
+      try {
+        const framesRes = await fetch("/api/references/frames", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ videoPath, count: 10, seconds: 2 }),
+        });
+        const framesData = await framesRes.json();
+        if (framesData.error) throw new Error(framesData.error);
+        setVideos((prev) => [
+          ...prev,
+          {
+            id: uid(),
+            name,
+            videoPath,
+            durationSeconds: duration > 0 ? duration : 5,
+            frames: framesData.frames || [],
+            selectedFrame: null,
+            recreationPrompt: "",
+            writing: false,
+            batchSize: 1,
+            stillJobs: [],
+            approvedStillPath: null,
+            animateJob: null,
+          },
+        ]);
+        toast.success(`Imported ${name} — it's waiting in the Add Videos step`);
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : "Import failed");
+      } finally {
+        setIntaking(false);
+      }
+    })();
+  }, []);
 
   // ── Single poller: reconcile every still job + animate job by id ──
   useEffect(() => {
@@ -220,6 +283,71 @@ export default function MotionCapturePage() {
     }
   };
 
+  // Re-extract a video's candidate frames from a different point in the clip.
+  // The opening seconds are often blurred or a title card, so the usable pose
+  // is frequently further in.
+  const reextractFrames = async (vid: VideoItem) => {
+    const start = vid.frameStart ?? 0;
+    const windowSecs = vid.frameWindow ?? 2;
+    patchVideo(vid.id, { extracting: true });
+    try {
+      const res = await fetch("/api/references/frames", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          videoPath: vid.videoPath,
+          count: 10,
+          seconds: windowSecs,
+          start,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      if (!data.frames?.length) throw new Error("No frames at that position");
+      patchVideo(vid.id, {
+        frames: data.frames,
+        selectedFrame: null,
+        recreationPrompt: "",
+        stillJobs: [],
+        approvedStillPath: null,
+        extracting: false,
+      });
+      toast.success(`Frames from ${start}s–${start + windowSecs}s`);
+    } catch (err: unknown) {
+      patchVideo(vid.id, { extracting: false });
+      toast.error(err instanceof Error ? err.message : "Re-extract failed");
+    }
+  };
+
+  // Send a finished still through nano-banana with an edit instruction; the
+  // result joins the same card as another candidate.
+  const postProcessStill = async (v: VideoItem, jobId: number, outputPath: string) => {
+    const instruction = window.prompt(
+      "Post-process — describe the edit (sent with the image to Nano Banana):"
+    );
+    if (!instruction?.trim()) return;
+    try {
+      const res = await fetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "image",
+          prompt: instruction,
+          provider: "higgsfield",
+          providerModel: "nano_banana_pro",
+          providerParams: { aspectRatio: "9:16", mediaRefs: [outputPath] },
+          characterId: selectedCharacter?.id,
+        }),
+      });
+      const newJob = await res.json();
+      if (newJob.error) throw new Error(newJob.error);
+      patchVideo(v.id, { stillJobs: [...v.stillJobs, newJob] });
+      toast.success("Post-process queued — the edit appears as a new candidate");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Post-process failed");
+    }
+  };
+
   const handleUploadFiles = async (files: FileList) => {
     for (const file of Array.from(files)) {
       const form = new FormData();
@@ -281,7 +409,9 @@ export default function MotionCapturePage() {
             prompt,
             provider: selectedProvider,
             providerModel: selectedModel,
-            providerParams: { quality: "2k", aspectRatio: "3:4", sceneRefUrl },
+            // 9:16 to match the driving reel — a 3:4 still animated into a
+            // vertical clip comes out stretched.
+            providerParams: { quality: "2k", aspectRatio: "9:16", sceneRefUrl },
             characterId: selectedCharacter.id,
           }),
         });
@@ -347,6 +477,10 @@ export default function MotionCapturePage() {
             videoPath: v.videoPath,
             characterId: selectedCharacter?.id,
             seconds: v.durationSeconds, // match the source video length
+            engine: animateEngine,
+            // Kling-only; ignored by Wan.
+            resolution: klingResolution,
+            sceneControl: "image", // keep the backdrop baked into the still
           }),
         });
         const job = await res.json();
@@ -487,6 +621,77 @@ export default function MotionCapturePage() {
             </CardContent>
           </Card>
 
+          {/* Motion engine — both take the approved still + driving clip, so
+              this swaps freely per batch. */}
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-sm">Motion Engine</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex gap-3 flex-wrap">
+                {(
+                  [
+                    {
+                      id: "runninghub" as const,
+                      label: "Wan Animate",
+                      sub: "RunningHub · needs Plus 48G",
+                    },
+                    {
+                      id: "kling" as const,
+                      label: "Kling 3.0 Motion Control",
+                      sub: "Higgsfield · motion_control",
+                    },
+                  ]
+                ).map((e) => (
+                  <button
+                    key={e.id}
+                    onClick={() => setAnimateEngine(e.id)}
+                    className={`text-left p-3 rounded-xl transition-all min-w-[190px] flex-1 ${
+                      animateEngine === e.id
+                        ? "glass-strong border-[oklch(0.75_0.15_270_/_30%)]"
+                        : "glass hover:bg-white/5"
+                    }`}
+                  >
+                    <span className="font-medium text-sm">{e.label}</span>
+                    <p className="text-[10px] text-muted-foreground/50 font-mono mt-1">
+                      {e.sub}
+                    </p>
+                  </button>
+                ))}
+              </div>
+
+              {animateEngine === "kling" && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Resolution</span>
+                  {(["720p", "1080p"] as const).map((r) => (
+                    <button
+                      key={r}
+                      onClick={() => setKlingResolution(r)}
+                      className={`px-2.5 py-1 rounded-lg text-xs border transition-colors ${
+                        klingResolution === r
+                          ? "bg-[oklch(0.75_0.15_270_/_20%)] border-white/20"
+                          : "glass border-white/10 hover:bg-white/5"
+                      }`}
+                    >
+                      {r}
+                      {r === "720p" && (
+                        <span className="text-muted-foreground/60 ml-1">
+                          cheaper
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <p className="text-xs text-muted-foreground">
+                {animateEngine === "kling"
+                  ? "Kling takes no prompt — the backdrop comes from your approved still."
+                  : "Wan replaces the character in the driving clip."}
+              </p>
+            </CardContent>
+          </Card>
+
           <div className="lg:col-span-2 flex justify-end">
             <Button
               disabled={!canProceedSetup}
@@ -607,7 +812,8 @@ export default function MotionCapturePage() {
               className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
             >
               {animating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              Animate All Ready ({readyCount})
+              Animate All Ready ({readyCount}) on{" "}
+              {animateEngine === "kling" ? "Kling" : "Wan"}
             </Button>
           </div>
 
@@ -624,6 +830,11 @@ export default function MotionCapturePage() {
               onGenerate={() => generateStill(v)}
               onApprove={(path) => patchVideo(v.id, { approvedStillPath: path })}
               onReject={(jobId) => rejectStill(v, jobId)}
+              onWindowChange={(patch) => patchVideo(v.id, patch)}
+              onReextract={() => reextractFrames(v)}
+              onPostProcess={(jobId, outputPath) =>
+                postProcessStill(v, jobId, outputPath)
+              }
             />
           ))}
         </div>
@@ -688,6 +899,9 @@ function VideoWorkCard({
   onGenerate,
   onApprove,
   onReject,
+  onWindowChange,
+  onReextract,
+  onPostProcess,
 }: {
   v: VideoItem;
   characterName: string;
@@ -697,6 +911,9 @@ function VideoWorkCard({
   onGenerate: () => void;
   onApprove: (path: string) => void;
   onReject: (jobId: number) => void;
+  onWindowChange: (patch: { frameStart?: number; frameWindow?: number }) => void;
+  onReextract: () => void;
+  onPostProcess: (jobId: number, outputPath: string) => void;
 }) {
   const stillActive = v.stillJobs.some((j) => isActive(j.status));
   const ready = !!v.approvedStillPath;
@@ -731,6 +948,54 @@ function VideoWorkCard({
             {/* frame strip */}
             <div>
               <p className="text-[11px] text-muted-foreground mb-1.5">Pick the frame to recreate</p>
+
+              {/* Seek the extraction window — the usable pose is often well
+                  past the opening seconds. */}
+              <div className="flex items-center gap-2 flex-wrap mb-2 text-[11px]">
+                <span className="text-muted-foreground">From</span>
+                <Input
+                  type="number"
+                  min={0}
+                  max={Math.max(0, Math.floor(v.durationSeconds) - 1)}
+                  value={v.frameStart ?? 0}
+                  onChange={(e) =>
+                    onWindowChange({
+                      frameStart: Math.max(0, Number(e.target.value) || 0),
+                    })
+                  }
+                  className="glass border-white/10 h-7 w-16 text-[11px] px-2"
+                />
+                <span className="text-muted-foreground">s over</span>
+                <Input
+                  type="number"
+                  min={1}
+                  value={v.frameWindow ?? 2}
+                  onChange={(e) =>
+                    onWindowChange({
+                      frameWindow: Math.max(1, Number(e.target.value) || 2),
+                    })
+                  }
+                  className="glass border-white/10 h-7 w-16 text-[11px] px-2"
+                />
+                <span className="text-muted-foreground">
+                  s{v.durationSeconds ? ` (clip is ${v.durationSeconds}s)` : ""}
+                </span>
+                <Button
+                  onClick={onReextract}
+                  disabled={v.extracting}
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[11px] border-white/10 gap-1.5"
+                >
+                  {v.extracting ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Film className="h-3 w-3" />
+                  )}
+                  Re-extract
+                </Button>
+              </div>
+
               <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                 {v.frames.map((f, i) => (
                   <button
@@ -816,6 +1081,15 @@ function VideoWorkCard({
                       </Button>
                       <Button onClick={() => onReject(job.id)} size="sm" variant="outline" className="h-7 rounded-lg border-white/10 px-2">
                         <ThumbsDown className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        onClick={() => onPostProcess(job.id, job.outputPath!)}
+                        size="sm"
+                        variant="outline"
+                        title="Post-process: edit this image with Nano Banana"
+                        className="h-7 rounded-lg border-white/10 px-2"
+                      >
+                        <Brush className="h-3 w-3" />
                       </Button>
                     </div>
                   )}

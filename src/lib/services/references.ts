@@ -308,14 +308,17 @@ export async function downloadInstagramReel(
   };
 }
 
-// ── Extract candidate frames from the start of a video ──
-// Grabs `count` frames spread across the first `seconds` of the clip so the
-// operator can pick the cleanest pose to recreate (the first literal frame is
-// often motion-blurred or mid-blink). Returns relative paths to the JPEGs.
+// ── Extract candidate frames from a window of a video ──
+// Grabs `count` frames evenly spread across a `seconds`-long window starting at
+// `startSeconds`, so the operator can pick the cleanest pose to recreate. The
+// window is seekable because the best pose often isn't at the top of the clip —
+// the opening frames are frequently motion-blurred, mid-blink, or a title card.
+// Returns relative paths to the JPEGs.
 export async function extractFramesFromVideo(
   videoPath: string,
   count: number = 10,
-  seconds: number = 2
+  seconds: number = 2,
+  startSeconds: number = 0
 ): Promise<string[]> {
   const abs = path.resolve(videoPath);
   if (!fs.existsSync(abs)) {
@@ -327,10 +330,12 @@ export async function extractFramesFromVideo(
   // fps = count/seconds → `count` evenly-spaced frames within the window.
   const fps = (count / seconds).toFixed(4);
   const pattern = path.join(STORAGE_DIR, `${id}_frame_%02d.jpg`);
+  const start = Math.max(0, startSeconds);
 
   try {
+    // -ss BEFORE -i is the fast keyframe seek; -t after it bounds the window.
     execSync(
-      `"${FFMPEG}" -t ${seconds} -i "${abs}" -vf "fps=${fps}" -frames:v ${count} -q:v 2 "${pattern}" -y`,
+      `"${FFMPEG}"${start > 0 ? ` -ss ${start}` : ""} -t ${seconds} -i "${abs}" -vf "fps=${fps}" -frames:v ${count} -q:v 2 "${pattern}" -y`,
       { stdio: "pipe" }
     );
   } catch (err) {
@@ -356,6 +361,45 @@ export async function extractFramesFromVideo(
     throw new Error("ffmpeg produced no frames from the video");
   }
   return frames;
+}
+
+// ── Cut a segment out of a video ──
+// A source clip often contains two distinct scenes; each recreated still should
+// be driven by its own scene, not the whole clip. Re-encodes rather than stream-
+// copying so the segment starts on a real frame (a stream copy would start at
+// the previous keyframe and desync the motion from the still).
+export async function trimVideo(
+  videoPath: string,
+  startSeconds: number,
+  endSeconds?: number
+): Promise<string> {
+  const abs = path.resolve(videoPath);
+  if (!fs.existsSync(abs)) {
+    throw new Error(`trimVideo: video not found: ${abs}`);
+  }
+
+  const start = Math.max(0, startSeconds);
+  const duration =
+    endSeconds != null && endSeconds > start ? endSeconds - start : undefined;
+
+  ensureDir(STORAGE_DIR);
+  const out = path.join(STORAGE_DIR, `${fileId()}_part.mp4`);
+
+  try {
+    execSync(
+      `"${FFMPEG}" -ss ${start}${duration ? ` -t ${duration}` : ""} -i "${abs}" ` +
+        `-c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -an "${out}" -y`,
+      { stdio: "pipe" }
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`ffmpeg trim failed: ${msg}`);
+  }
+
+  if (!fs.existsSync(out) || fs.statSync(out).size === 0) {
+    throw new Error("ffmpeg produced an empty segment — check the split point");
+  }
+  return path.relative(process.cwd(), out);
 }
 
 // Video pixel dimensions via ffprobe (null if unknown).

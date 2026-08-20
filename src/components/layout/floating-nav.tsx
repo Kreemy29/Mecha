@@ -12,7 +12,10 @@ import {
   Settings,
   Zap,
   Shirt,
+  LayoutGrid,
+  Megaphone,
 } from "lucide-react";
+import { InstagramIcon } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import {
   Tooltip,
@@ -22,9 +25,12 @@ import {
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/instagram", label: "Instagram", icon: InstagramIcon },
+  { href: "/requests", label: "Requests", icon: Megaphone },
   { href: "/images", label: "Images", icon: Image },
   { href: "/talking-head", label: "Talking Head", icon: Video },
   { href: "/motion-capture", label: "Motion Capture", icon: Clapperboard },
+  { href: "/formats", label: "Formats", icon: LayoutGrid },
   { href: "/seedance", label: "Seedance", icon: Shirt },
   { href: "/seedance-direct", label: "Direct", icon: Zap },
   { href: "/characters", label: "Characters", icon: Users },

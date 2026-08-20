@@ -1,0 +1,50 @@
+[
+  {
+    "id": 1,
+    "kind": "hair",
+    "name": "Beach waves",
+    "description": "long loose beach waves, centre part, slightly tousled",
+    "isDefault": false,
+    "createdAt": "2026-07-26 15:34:18"
+  },
+  {
+    "id": 2,
+    "kind": "makeup",
+    "name": "Soft glam",
+    "description": "soft glam, warm bronze eye, glossy nude lip, dewy skin",
+    "isDefault": true,
+    "createdAt": "2026-07-26 15:34:18"
+  },
+  {
+    "id": 3,
+    "kind": "hair",
+    "name": "High ponytail",
+    "description": "sleek high ponytail, tight to the scalp",
+    "isDefault": true,
+    "createdAt": "2026-07-26 15:34:31"
+  },
+  {
+    "id": 4,
+    "kind": "outfit",
+    "name": "White linen sundress",
+    "description": "flowing white linen sundress with thin straps and a fitted bodice",
+    "isDefault": false,
+    "createdAt": "2026-07-29 11:20:15"
+  },
+  {
+    "id": 5,
+    "kind": "outfit",
+    "name": "Red sequin mini",
+    "description": "red sequin mini dress with thin straps",
+    "isDefault": false,
+    "createdAt": "2026-07-29 11:20:15"
+  },
+  {
+    "id": 6,
+    "kind": "outfit",
+    "name": "Denim + crop",
+    "description": "high-waisted blue denim jeans with a fitted white crop top",
+    "isDefault": false,
+    "createdAt": "2026-07-29 11:20:15"
+  }
+]

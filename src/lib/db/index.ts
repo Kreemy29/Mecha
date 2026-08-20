@@ -18,3 +18,6 @@ sqlite.pragma("busy_timeout = 5000");
 
 export const db = drizzle(sqlite, { schema });
 export { schema };
+// Raw handle for the rare cases that need direct SQL (e.g. CREATE TABLE IF
+// NOT EXISTS at runtime, avoiding a data-destructive `db:push`).
+export const rawDb = sqlite;

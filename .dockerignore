@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+.env
+.env.*
+data
+storage
+*.log
+.claude
+.tmp-vids.txt
+kling3-probe*

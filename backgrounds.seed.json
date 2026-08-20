@@ -1,0 +1,23 @@
+[
+  {
+    "id": 4,
+    "name": "Dorm room (door)",
+    "description": "A narrow institutional dorm room photographed straight-on toward a closed flush door of honey-toned oak veneer with a brushed-steel lever handle, silver hinges and a white painted frame, set into warm off-white painted walls. A round white smoke detector sits on the white ceiling above, and a white light-switch plate is on the wall to the left. The floor is pale speckled beige-grey vinyl tile with visible grid lines. Twin beds flank both sides with white duvets and white pillows on light wood frames: a blush-pink fuzzy cushion on the left bed, a brown canvas tote bag hanging from the right bed frame, a black backpack and a white plastic three-drawer cart tucked beneath the left bed, a grey hamper at the right, and light wood dressers at both lower corners. Soft, flat, even overhead artificial lighting, neutral-warm in tone, with no strong shadows and shallow depth, the door filling the centre of the frame.",
+    "imagePath": null,
+    "createdAt": "2026-07-24 14:39:54"
+  },
+  {
+    "id": 5,
+    "name": "Concrete stairwell (orange rail)",
+    "description": "A modern minimalist concrete stairwell photographed straight-on looking up a single straight flight of pale grey cast-concrete steps with slim recessed metal nosing strips. The walls are board-formed in-situ concrete in cool mid-grey, showing faint formwork panel seams and small circular tie-holes across their surface. Both sides of the stair are lined with a balustrade of closely spaced slender vertical bars painted a saturated burnt orange, capped by a smooth pale blonde ash handrail; a matching wood handrail runs along the left wall on orange brackets, and a further orange balustrade descends at the lower left. At the head of the stairs a tall window with a slim pale frame and a horizontal transom fills the upper centre, opening onto bright blue sky with soft white clouds and a faint distant hillside. A smooth off-white plastered soffit crosses the upper left. The ground-level floor in the foreground is polished sealed concrete in warm grey, inset with a dark charcoal entrance mat and thin brushed-metal grating strips. Bright, cool, soft natural daylight floods in from the window, backlighting the stair and casting gentle diffuse shadows, in a tall vertical composition with the steps receding to the centre of the frame.",
+    "imagePath": null,
+    "createdAt": "2026-07-26 14:37:57"
+  },
+  {
+    "id": 6,
+    "name": "football court",
+    "description": "A wide American football field with vibrant green artificial turf and crisp white yard lines including a large \"10\" marking, viewed from near the end zone. Multi-tiered concrete bleachers with rows of green seats rise in the background, backed by a modern beige building featuring large glass windows, \"PHILLIPS\" signage, and a central \"B\" emblem. A tall stadium light pole emits bright white light from above left, casting soft glows across the field under a dusk sky of pink-gray clouds with distant dark trees at the edges.",
+    "imagePath": "storage\\references\\1785588424477_az81rx.jpg",
+    "createdAt": "2026-08-01 12:47:56"
+  }
+]

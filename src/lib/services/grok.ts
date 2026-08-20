@@ -1,49 +1,13 @@
-const XAI_BASE_URL = "https://api.x.ai/v1";
-const TEXT_MODEL = "grok-4.3";
-const VISION_MODEL = "grok-4.3";
+// The prompt engineering below is provider-agnostic: the same system prompts
+// and image parts are sent to whichever model the operator picked. Only the
+// transport differs, and that lives in ./llm.
+import {
+  chatCompletion,
+  type ContentPart,
+  type PromptProvider,
+} from "./llm";
 
-type ContentPart =
-  | { type: "text"; text: string }
-  | { type: "image_url"; image_url: { url: string } };
-
-interface ChatMessage {
-  role: "system" | "user" | "assistant";
-  content: string | ContentPart[];
-}
-
-interface GrokResponse {
-  choices: Array<{ message: { content: string } }>;
-}
-
-async function chatCompletion(
-  messages: ChatMessage[],
-  options?: { temperature?: number; maxTokens?: number; model?: string }
-): Promise<string> {
-  const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey) throw new Error("XAI_API_KEY not configured");
-
-  const res = await fetch(`${XAI_BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: options?.model ?? TEXT_MODEL,
-      messages,
-      temperature: options?.temperature ?? 0.8,
-      max_tokens: options?.maxTokens ?? 1500,
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Grok API error (${res.status}): ${err}`);
-  }
-
-  const data: GrokResponse = await res.json();
-  return data.choices[0]?.message?.content?.trim() || "";
-}
+export type { PromptProvider };
 
 // Fetch a remote image and return a base64 data URI (Grok's URL fetcher chokes
 // on CloudFront's content-type headers, so we inline the bytes ourselves).
@@ -247,8 +211,10 @@ export interface SwapPromptInput {
   settingDescription?: string; // Optional background override
   characterName?: string; // Selected Higgsfield character — used as the LoRA name
   outfitOverride?: string; // Force this outfit instead of the reference's clothing
+  poseOverride?: string; // Force this body posture instead of the reference's
   backgroundRefUrl?: string; // Location image — becomes the scene's environment
   backgroundDescription?: string; // Frozen location text — used verbatim (preferred)
+  provider?: PromptProvider; // which model writes it; defaults to Grok
 }
 
 // Describe a location image ONCE so the text can be frozen and reused. Running
@@ -263,7 +229,10 @@ Rules:
 
 Output ONLY the description text.`;
 
-export async function describeBackground(imageUrl: string): Promise<string> {
+export async function describeBackground(
+  imageUrl: string,
+  provider: PromptProvider = "grok"
+): Promise<string> {
   const content = await chatCompletion(
     [
       { role: "system", content: BACKGROUND_DESCRIBE_SYSTEM },
@@ -275,7 +244,7 @@ export async function describeBackground(imageUrl: string): Promise<string> {
         ],
       },
     ],
-    { model: VISION_MODEL, temperature: 0.2, maxTokens: 400 }
+    { provider, temperature: 0.2, maxTokens: 400 }
   );
   return content.trim();
 }
@@ -403,6 +372,17 @@ export async function generateSwapPrompt(
     });
   }
 
+  // Posture is the one thing normally taken wholesale from the Scene Reference,
+  // so overriding it needs the same MANDATORY framing the outfit override uses —
+  // and an explicit list of what must still come from the reference, or Grok
+  // reinterprets the camera and framing to suit the new pose.
+  if (input.poseOverride?.trim()) {
+    parts.push({
+      type: "text",
+      text: `POSE OVERRIDE (MANDATORY): The subject's body posture MUST be EXACTLY: "${input.poseOverride}". Fill the pose fields (type, orientation, arms, legs, spine) to describe THAT posture in concrete detail, and completely ignore the posture in the Scene Reference. Everything else still comes from the Scene Reference: camera type, lens, depth of field, angle, framing, crop, environment, lighting and photographic style.`,
+    });
+  }
+
   const characterName = input.characterName?.trim() || "character";
   parts.push({
     type: "text",
@@ -419,7 +399,7 @@ export async function generateSwapPrompt(
       { role: "system", content: SUBJECT_SWAP_SYSTEM },
       { role: "user", content: parts },
     ],
-    { model: VISION_MODEL, temperature: 0.7, maxTokens: 1500 }
+    { provider: input.provider ?? "grok", temperature: 0.7, maxTokens: 1500 }
   );
 
   const json = extractJson(content);
@@ -449,9 +429,69 @@ Keep the movements exactly the same as @[Video 1](video_1).
 
 Maintain the facial identity, skin texture, and features of as the primary visual reference throughout the entire duration.`;
 
+// Subtle-motion variant, for casual selfie-style shots where the driving clip
+// is a person barely moving. Per Higgsfield's own Seedance guide the single
+// most useful instruction is stating what the camera is NOT doing — that is
+// what keeps the perspective locked instead of drifting into a new shot. The
+// "subtle / gentle / slight" vocabulary is the documented way to damp motion
+// down on both Seedance and Kling.
+const SEEDANCE_NATURAL_TEMPLATE = `Animate the subject in @[Image 1](image_1) using the motion from @[Video 1](video_1).
+
+Keep the movements exactly the same as @[Video 1](video_1) — subtle and natural: gentle head tilt, slight smile, soft blinking, easy breathing, hair shifting softly. No exaggerated gestures, no dancing, no fast movement.
+
+Single continuous shot: no cuts, no zoom in, no zoom out, no dolly, no orbit. The camera is handheld and shifts only slightly with her hand — minimal and steady, settling as she settles, with no drifting, floating or wandering of its own. It is not on a tripod, and her arms and hands keep moving naturally throughout.
+
+Maintain the facial identity, skin texture, and features of @[Image 1](image_1) as the primary visual reference throughout the entire duration.`;
+
+// ── Seedance image-to-video: action → motion prompt ──
+// Image-to-video has no driving clip, so the prompt is the ONLY thing carrying
+// motion — which makes it the one place a bad prompt shows up immediately as
+// drifting camera or exaggerated movement. The rules below are the documented
+// ones: describe only how the still evolves (never re-describe what is already
+// visible), damp the motion with "subtle/gentle/slight", and state explicitly
+// what the camera is NOT doing, which is what keeps the framing locked.
+const SEEDANCE_MOTION_SYSTEM = `You write motion prompts for Seedance 2.0 image-to-video. A single still image is the first frame; your prompt describes how it comes to life.
+
+Rules:
+1. Describe ONLY movement and how the scene evolves from the still. NEVER re-describe the person's face, hair, clothing, body or the location — the image already carries all of that, and repeating it makes the model redraw and drift.
+2. NO DELIBERATE CAMERA MOVES. Always ban these explicitly: no zoom in, no zoom out, no dolly, no orbit, no crane, no sweeping pans, no cuts, single continuous shot. These are what make a clip look artificial.
+2b. THE CAMERA IS HANDHELD BUT BARELY MOVES, AND ONLY BECAUSE SHE DOES. The phone is in her hand, so the frame must be free to shift with her arm — a physically fixed frame forces the arm to freeze, which is the most common failure here. But the movement is MOTIVATED and MINIMAL: the frame moves only as her hand moves, by the smallest amount needed to keep her in shot, and it settles the instant she settles. Phrase it like: "handheld, the frame shifts only slightly with her hand, minimal and steady, settling as she settles." BAN unmotivated motion by name every time: no random drift, no floating, no wandering or roaming, no shake, no jitter, no swinging, no camera motion of its own. Equally, NEVER call the shot locked, static, fixed, mounted or tripod-like.
+2c. HER BODY IS NEVER STILL. Her arms, hands, shoulders and head keep moving naturally. If she is holding a phone, state that the phone-holding arm travels with her — shoulder rotating, elbow bending, wrist re-angling to keep herself in frame — and that the arm is never rigid or frozen.
+3. Motion must read as real and unperformed — a real person filming themselves, not a model posing. Damp everything with "subtle", "gentle", "slight", "slow", "natural". Never fast, dramatic, bouncy, exaggerated, or dance-like.
+4. Always include quiet human life: soft natural blinking, easy relaxed breathing, micro-shifts of weight, hair settling. These are what stop a face looking frozen.
+5. Keep the subject's identity, face and proportions perfectly consistent for the whole clip.
+6. TURNS END AND HOLD: any turn is ONE partial movement — at most a half turn at the waist or hips — that completes and then HOLDS in the final pose for the rest of the clip. State this explicitly: "one single half turn", "she stops and holds", "she does not keep rotating". NEVER produce a full rotation, a 360, a spin, a pirouette, or any looping/continuous rotation, and say so in the prompt.
+7. Write ONE paragraph, 45-75 words, plain declarative sentences. No shot lists, no timestamps, no markdown, no camera jargon beyond the lock statement.
+
+Output ONLY the prompt text.`;
+
+// Turn a short operator-chosen action ("tilting head, slightly smiling") into a
+// full Seedance image-to-video prompt.
+export async function generateSeedanceMotionPrompt(
+  action: string,
+  provider: PromptProvider = "grok"
+): Promise<string> {
+  const content = await chatCompletion(
+    [
+      { role: "system", content: SEEDANCE_MOTION_SYSTEM },
+      {
+        role: "user",
+        content: `Action the subject performs: ${action.trim()}
+
+Write the Seedance image-to-video motion prompt.`,
+      },
+    ],
+    { provider, temperature: 0.6, maxTokens: 300 }
+  );
+  return content.trim();
+}
+
 // Returns the Seedance prompt. Deterministic — no LLM call, no frame sampling.
-export async function generateSeedancePrompt(): Promise<string> {
-  return SEEDANCE_TEMPLATE;
+// `natural` swaps in the subtle-motion wording for selfie-style shots.
+export async function generateSeedancePrompt(
+  natural: boolean = false
+): Promise<string> {
+  return natural ? SEEDANCE_NATURAL_TEMPLATE : SEEDANCE_TEMPLATE;
 }
 
 // Text-only recreation fallback (when there's no image to look at).
@@ -527,7 +567,8 @@ export interface GeneratedCharacter {
 
 // Generate a unique composite persona from 2-4 face images (data URIs or URLs).
 export async function generateCharacterProfile(
-  images: string[]
+  images: string[],
+  provider: PromptProvider = "grok"
 ): Promise<GeneratedCharacter> {
   if (images.length < 2) {
     throw new Error("Provide at least 2 reference images for a unique blend");
@@ -559,7 +600,7 @@ export async function generateCharacterProfile(
       { role: "system", content: CHARACTER_CREATOR_SYSTEM },
       { role: "user", content: parts },
     ],
-    { model: VISION_MODEL, temperature: 1.0, maxTokens: 1200 }
+    { provider, temperature: 1.0, maxTokens: 1200 }
   );
 
   const json = extractJson(content);

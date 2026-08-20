@@ -11,6 +11,7 @@ import { HiggsfieldProvider } from "./higgsfield-provider.js";
 import { RunningHubProvider } from "./runninghub-provider.js";
 import { SeedanceProvider } from "./seedance-provider.js";
 import { KieProvider } from "./kie-provider.js";
+import { KlingProvider } from "./kling-provider.js";
 
 const QUEUE_POLL_INTERVAL = 2000;
 
@@ -92,6 +93,7 @@ async function main() {
   registerProvider(new RunningHubProvider());
   registerProvider(new SeedanceProvider());
   registerProvider(new KieProvider());
+  registerProvider(new KlingProvider());
 
   await initQueues();
   await resumeInterruptedJobs();

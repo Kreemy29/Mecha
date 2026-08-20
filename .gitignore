@@ -43,3 +43,7 @@ next-env.d.ts
 # app data
 /data/
 /storage/
+
+# local-only editor/agent state
+.claude/settings.local.json
+.tmp-vids.txt

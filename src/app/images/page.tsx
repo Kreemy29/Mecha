@@ -1088,7 +1088,9 @@ export default function ImagesPage() {
               </div>
               <div className="flex gap-2">
                 <Button
-                  onClick={handleDownloadAll}
+                  // Wrapped: onClick hands the handler a MouseEvent, which
+                  // would arrive as `approvedOnly` and read as truthy.
+                  onClick={() => handleDownloadAll()}
                   disabled={
                     downloading ||
                     jobs.filter((j) => j.status === "succeeded").length === 0

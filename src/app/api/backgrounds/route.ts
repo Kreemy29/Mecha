@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/lib/db";
 import { desc, eq } from "drizzle-orm";
+import {
+  backupBackgrounds,
+  restoreBackgroundsIfEmpty,
+} from "@/lib/services/background-backup";
 
 // Saved backgrounds — each holds a frozen description reused verbatim.
 export async function GET() {
+  // Auto-heal after a db:push / reset wiped the table.
+  restoreBackgroundsIfEmpty();
   const rows = db
     .select()
     .from(schema.backgrounds)
@@ -29,6 +35,7 @@ export async function POST(request: NextRequest) {
     })
     .returning()
     .get();
+  backupBackgrounds();
   return NextResponse.json(row, { status: 201 });
 }
 
@@ -38,5 +45,6 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "id is required" }, { status: 400 });
   }
   db.delete(schema.backgrounds).where(eq(schema.backgrounds.id, id)).run();
+  backupBackgrounds();
   return NextResponse.json({ ok: true });
 }

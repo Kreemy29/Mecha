@@ -16,12 +16,16 @@ Browser (Next.js UI) ──poll──┐
                       SQLite (data/mecha.db)   ◄── single source of truth
                              ▲
 Worker process (p-queue) ────┘
-   ├─ Higgsfield MCP   images (Soul) + Seedance video (generate_video)
+   ├─ Higgsfield MCP   images (Soul) + Seedance video + Kling motion_control
    ├─ KIE AI           Seedance video (alternate provider)
    ├─ RunningHub       Wan Animate character replacement
    ├─ fal.ai           nano-banana images (background swap etc.)
    └─ Grok (xAI)       vision: recreation prompts, background describe
 ```
+
+Registered worker providers (`worker.ts`): `fal`, `higgsfield`, `runninghub`,
+`seedance` (Higgsfield generate_video), `kie`, `kling`.
+Job kinds (`schema.ts`): `image`, `talking_head`, `motion_capture`, `seedance`.
 
 The **UI only writes jobs as `queued`.** The **worker** is the only thing that
 submits them to providers. No worker running ⇒ everything sits `queued` forever.
@@ -54,8 +58,13 @@ Higgsfield MCP** (OAuth; token saved to `data/higgsfield-token.json`).
 | **Images** | `/images` | Original flow: Pinterest/upload references → Grok subject-swap → Higgsfield Soul stills → review |
 | **Seedance** | `/seedance` | **Batch video recreation.** N videos × M outfits → stills → Seedance video per combo |
 | **Seedance Direct** | `/seedance-direct` | Manual: drop image + video + prompt → Seedance. No pipeline |
-| **Motion Capture** | `/motion-capture` | Guided Wan Animate batch (RunningHub): pick frame, approve still, animate all |
+| **Motion Capture** | `/motion-capture` | Guided motion-transfer batch. Two interchangeable engines (`/api/animate` `engine`): **RunningHub Wan Animate** or **Kling 3.0 motion_control** (Higgsfield). Pick frame, approve still, animate all |
 | **Talking Head** | `/talking-head` | Stub (unbuilt) |
+
+Additional pages present (added after the core video work — describe from code, not
+covered in depth here): **`/instagram`** (RapidAPI feed browse + media download, see
+`services/instagram.ts`), **`/formats`**, and prompt/style preset management
+(**`/api/prompt-presets`**, **`/api/style-presets`**, `services/presets-store.ts`).
 
 ### Seedance batch flow (the main new thing)
 `Setup → Videos → Background → Outfits → Stills → Seedance`
@@ -123,6 +132,10 @@ Required / important:
   Billing tells the truth: "with video" rate ≈ 25 cr/s, "no video" ≈ 41 cr/s.
 - **RunningHub Wan Animate**: upload binary → run ai-app → poll query → download.
   Needs the **Plus (48G) instance** or it OOMs.
+- **Kling 3.0 (`motion_control`, Higgsfield)**: alternate motion engine, chosen per
+  batch via `/api/animate` `{ engine: "kling" }`. Takes **no prompt**; has
+  `resolution` (720p/1080p) and `sceneControl` (`image` keeps the still's scene,
+  `video` uses the driving video's). See `kling-provider.ts`.
 - **Content eligibility**: Higgsfield's web-UI "Check eligibility" (protected/IP
   content) is **NOT available via the API** — confirmed against `show_medias`. We
   can't pre-check; only catch flags on output.
@@ -143,11 +156,14 @@ src/app/
     grok/              swap-prompt, seedance-prompt
     higgsfield/        OAuth connect/callback, tools, characters
 src/lib/
-  services/  grok.ts higgsfield.ts kie.ts runninghub.ts references.ts slack.ts
+  services/  grok.ts higgsfield.ts higgsfield-oauth.ts kie.ts runninghub.ts
+             references.ts background-backup.ts instagram.ts presets-store.ts slack.ts
   worker/    worker.ts job-runner.ts providers.ts
-             higgsfield-provider.ts seedance-provider.ts kie-provider.ts runninghub-provider.ts fal-provider.ts
+             higgsfield-provider.ts seedance-provider.ts kie-provider.ts
+             runninghub-provider.ts kling-provider.ts fal-provider.ts
   db/        schema.ts index.ts
 scripts/dev-all.mjs    supervised UI+worker launcher
+backgrounds.seed.json  saved-background backup (auto-managed, committed)
 ```
 
 ---
@@ -159,7 +175,10 @@ scripts/dev-all.mjs    supervised UI+worker launcher
    work" moments were stale-worker.
 2. **Only one worker at a time.** Kill strays; `npm run dev` owns the worker.
 3. **`db:push` wipes hand-made data** — specifically saved `backgrounds` (no other
-   source). Back them up before pushing schema. (Consider a JSON export — TODO.)
+   source). ✅ **Now auto-protected**: `services/background-backup.ts` mirrors the
+   table to `backgrounds.seed.json` (repo root, committed) on every save/delete and
+   auto-restores it whenever the table is empty (on `GET /api/backgrounds`). So a
+   push/reset can't lose them, and they travel with the repo.
 4. **This dev machine's TLS proxy**: `git` needs `-c http.sslVerify=false`, `npm`
    needs `--strict-ssl=false`, Node needs `NODE_TLS_REJECT_UNAUTHORIZED=0`.
 5. **better-sqlite3 on Node 24**: no prebuilt; if it fails, drop the matching
@@ -185,8 +204,16 @@ scripts/dev-all.mjs    supervised UI+worker launcher
 
 ## 10. Open / next
 
-- Save-backgrounds JSON backup so `db:push` can't erase them.
+- ✅ ~~Save-backgrounds JSON backup~~ — done (`background-backup.ts`, §8.3).
 - `ip_detected` handling: surface Higgsfield's protected-content flag on cards and
   stop it looping through NSFW retries.
 - Verify KIE result-download parsing end-to-end (uploads + submit confirmed).
 - `talking-head` page is still a stub.
+- Newer areas added after the core video work and NOT deeply documented here:
+  **Kling** motion engine, **Instagram** browse/download (`/instagram`), **formats**
+  (`/formats`), and prompt/style **preset stores**. Read the code in the files named
+  in §7 before changing them.
+- **ComfyUI Wan Animate workflow** (`OFMTech_BarbecueMotion.json`, external): in
+  progress — goal is to source the animation background from the *reference image*
+  instead of the *reference video*. The node to flip is `WanVideoAnimateEmbeds`'
+  `bg_images` input, currently fed by `Get_background_image` (trace its `SetNode`).

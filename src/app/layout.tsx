@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { FloatingNav } from "@/components/layout/floating-nav";
+import { AppShell } from "@/components/layout/app-shell";
 import "./globals.css";
 
 const inter = Inter({
@@ -16,7 +16,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Mecha AI",
+  title: "OneUp",
   description: "AI UGC Content Automation Tool",
 };
 
@@ -40,12 +40,7 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <TooltipProvider>
-          <div className="min-h-screen flex flex-col">
-            <FloatingNav />
-            <main className="flex-1 w-full max-w-7xl mx-auto px-6 pt-24 pb-8">
-              {children}
-            </main>
-          </div>
+          <AppShell>{children}</AppShell>
         </TooltipProvider>
         <Toaster />
       </body>

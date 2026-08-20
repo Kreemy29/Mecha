@@ -19,10 +19,14 @@ export async function POST(
     return NextResponse.json({ error: "Job not found" }, { status: 404 });
   }
 
-  // Mark as approved
-  const history = (job.promptHistory as Array<Record<string, unknown>>) || [];
+  // Mark as approved. The column's type says every entry carries the prompt it
+  // relates to, so record that rather than a bare {action, timestamp} — which
+  // is what made this fail to compile.
+  const history = job.promptHistory ?? [];
   history.push({
-    action: "approved",
+    prompt: job.prompt ?? "",
+    outputPath: job.outputPath ?? undefined,
+    rejectionNote: "approved",
     timestamp: new Date().toISOString(),
   });
 

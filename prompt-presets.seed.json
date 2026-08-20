@@ -1,0 +1,22 @@
+[
+  {
+    "id": 4,
+    "name": "highschool staircase",
+    "prompt": "A high-angle, authentic snapshot taken with a standard smartphone lens, capturing a young woman ascending a worn metal staircase featuring yellow safety stripes in an indoor high school stairwell. She has a curvy figure with a large bust and thick thighs, wearing a black long-sleeve crop top and matching black shorts, with a backpack over her shoulders and a thin gold necklace with a small pendant. Her hair is styled in a high, neat ponytail, pulling all hair back from her face. She has green eyes, full lips, defined eyebrows, and flawless, smooth, clean, unmarked skin. Her body is facing upward, but her head is turned toward the camera with a neutral gaze. Her left hand is gripping the left metal railing, and her right arm is relaxed at her side. Her right leg is stepping up onto a higher step, with her left leg on a lower step, creating a slightly forward lean. The background consists of beige cinder block walls, white metal railings on both sides, and gray concrete landings. The scene is illuminated by cool overhead fluorescent tube lights, casting realistic shadows, with visible ceiling fixtures. The focus is deep throughout the scene, and the image has a realistic, unedited texture without professional studio filters.",
+    "thumbPath": "storage\\prompt-presets\\1785081153179_1785081140791_646txi.png",
+    "videoPath": null,
+    "durationSeconds": null,
+    "notes": null,
+    "createdAt": "2026-07-26 15:52:33"
+  },
+  {
+    "id": 5,
+    "name": "standing on stairs, high angle view from above",
+    "prompt": "{\n  \"subject\": {\n    \"name\": \"Maya\",\n    \"description\": \"young woman with smooth clean unmarked skin, green eyes, full lips, soft facial features\",\n    \"attire\": \"flowing white linen sundress with thin straps and a fitted bodice\",\n    \"anatomy\": \"curvy plus-size build, smooth clean unmarked skin, thick thighs and hips\",\n    \"accessories\": \"thin gold necklace with small pendant\",\n    \"hair\": \"sleek high ponytail, tight to the scalp\",\n    \"makeup\": \"soft glam, warm bronze eye, glossy nude lip, dewy skin\"\n  },\n  \"pose\": {\n    \"type\": \"standing on stairs\",\n    \"orientation\": \"high angle view from above\",\n    \"expression\": \"neutral, looking down\",\n    \"arms\": \"left hand resting on left railing, right arm extended outward\",\n    \"legs\": \"one leg forward on stair step\",\n    \"spine\": \"slightly forward lean\"\n  },\n  \"environment\": {\n    \"location\": \"concrete stairwell with beige cinder block walls, white metal railings on both sides, yellow-edged concrete steps, fluorescent light fixture mounted on wall\"\n  },\n  \"camera\": {\n    \"type\": \"high angle overhead shot\",\n    \"lens\": \"standard smartphone lens\",\n    \"dof\": \"natural focus with slight depth falloff\"\n  },\n  \"lighting\": {\n    \"sources\": [\n      \"overhead fluorescent tube light\"\n    ],\n    \"quality\": \"cool white overhead lighting with soft shadows\"\n  },\n  \"output\": {\n    \"ratio\": \"9:16\",\n    \"orientation\": \"Portrait\",\n    \"style\": \"Authentic, casual snapshot appearance, realistic unedited skin texture, sharp clothing fabric detail, no professional studio filters.\"\n  },\n  \"loras\": {\n    \"character_lora\": \"<lora:Maya:1.0>\"\n  },\n  \"controls\": {\n    \"pose\": \"DWPose (1.0)\",\n    \"depth\": \"ZoeDepth (0.8)\"\n  },\n  \"negative_prompt\": [\n    \"body averaging\",\n    \"hair color description\",\n    \"studio lighting\",\n    \"artificial bokeh\",\n    \"heavy skin smoothing\",\n    \"airbrushed appearance\",\n    \"3d render\",\n    \"illustration\",\n    \"drawing\"\n  ]\n}",
+    "thumbPath": "storage\\prompt-presets\\1785921467244_1785921295919_llelr3_frame_09.jpg",
+    "videoPath": "storage\\references\\1785921295652_o10dq2.mp4",
+    "durationSeconds": 6,
+    "notes": null,
+    "createdAt": "2026-08-05 09:17:47"
+  }
+]

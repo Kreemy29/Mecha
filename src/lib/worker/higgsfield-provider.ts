@@ -39,7 +39,20 @@ export function toHiggsfieldPrompt(raw: string): string {
     o = obj.output;
 
   const parts: string[] = [];
-  const subj = [g(s, "description"), g(s, "anatomy")].filter(Boolean).join(", ");
+  // `hair` and `makeup` are not in Grok's template — lib/prompt-overrides
+  // writes them in when the operator picks them, so they must be listed here
+  // or the flattener silently drops them and the choice never reaches the
+  // model. (`chest` now goes into `anatomy`; it stays here only to keep
+  // prompts saved under the older shape rendering correctly.)
+  const subj = [
+    g(s, "description"),
+    g(s, "anatomy"),
+    g(s, "chest"),
+    g(s, "hair"),
+    g(s, "makeup"),
+  ]
+    .filter(Boolean)
+    .join(", ");
   if (subj) parts.push(subj);
   parts.push("flawless smooth clean unmarked skin"); // positive cue (no negation)
   if (g(s, "attire")) parts.push(`wearing ${g(s, "attire")}`);
