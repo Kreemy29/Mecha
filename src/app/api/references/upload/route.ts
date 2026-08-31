@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { saveUploadedImage } from "@/lib/services/references";
+import { publicOrigin } from "@/lib/request-origin";
 
 // Accept one or more uploaded images (multipart) and return them in the same
 // shape as Pinterest results, so the existing reference-selection + recreation
@@ -13,7 +14,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No files provided" }, { status: 400 });
     }
 
-    const origin = request.nextUrl.origin;
+    const origin = publicOrigin(request);
     const results = [];
     for (const f of files) {
       if (typeof f === "string") continue;
