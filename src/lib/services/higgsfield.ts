@@ -2,7 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import fs from "fs";
 import path from "path";
-import { readMediaBytes } from "../local-files.js";
+import { readMediaBytes } from "../local-files";
 
 const MCP_URL = process.env.HIGGSFIELD_MCP_URL || "https://mcp.higgsfield.ai";
 const TOKEN_ENDPOINT = `${MCP_URL}/oauth2/token`;
