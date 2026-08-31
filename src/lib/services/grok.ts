@@ -6,15 +6,16 @@ import {
   type ContentPart,
   type PromptProvider,
 } from "./llm";
+import { readMediaBytes } from "@/lib/local-files";
 
 export type { PromptProvider };
 
-// Fetch a remote image and return a base64 data URI (Grok's URL fetcher chokes
-// on CloudFront's content-type headers, so we inline the bytes ourselves).
+// Return an image as a base64 data URI (the providers' URL fetchers choke on
+// CloudFront's content-type headers, so we inline the bytes ourselves).
+// readMediaBytes reads straight from disk when the URL is one of our own
+// /api/files links, which is both faster and immune to the session check.
 async function toDataUri(url: string): Promise<string> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch image (${res.status}): ${url}`);
-  const buf = Buffer.from(await res.arrayBuffer());
+  const buf = await readMediaBytes(url);
 
   // Detect type from magic bytes; default to jpeg.
   let mime = "image/jpeg";

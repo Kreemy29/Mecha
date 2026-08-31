@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import fs from "fs";
 import path from "path";
+import { readMediaBytes } from "../local-files.js";
 
 const MCP_URL = process.env.HIGGSFIELD_MCP_URL || "https://mcp.higgsfield.ai";
 const TOKEN_ENDPOINT = `${MCP_URL}/oauth2/token`;
@@ -316,9 +317,9 @@ const MEDIA_CONFIRM_TOOL = "media_confirm";
 // Read image bytes from an http(s) URL or a local path.
 async function readImageBytes(src: string): Promise<Buffer> {
   if (src.startsWith("http")) {
-    const res = await fetch(src);
-    if (!res.ok) throw new Error(`Failed to fetch image (${res.status}): ${src}`);
-    return Buffer.from(await res.arrayBuffer());
+    // Our own /api/files links resolve to disk — the worker is a separate
+    // process, so an HTTP fetch here arrives without a session cookie.
+    return readMediaBytes(src);
   }
   // local path (relative to cwd)
   const abs =
