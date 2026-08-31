@@ -204,7 +204,7 @@ export async function searchPinterest(
   return searchPinterestNative(query, pages);
 }
 
-// ── Instagram Reel Download (instagram120 mediaByShortcode) ──
+// ── Instagram Reel Download (instagram-scraper-stable-api get_media_data.php) ──
 
 // Extract the shortcode from an Instagram reel/post URL.
 // e.g. https://www.instagram.com/reel/DPRcWdvgI4P/ -> DPRcWdvgI4P
@@ -245,7 +245,9 @@ export async function downloadInstagramReel(
   reelUrl: string
 ): Promise<{ videoPath: string; framePath: string }> {
   const apiKey = process.env.RAPIDAPI_KEY;
-  const host = process.env.RAPIDAPI_INSTAGRAM_HOST || "instagram120.p.rapidapi.com";
+  const host =
+    process.env.RAPIDAPI_INSTAGRAM_HOST ||
+    "instagram-scraper-stable-api.p.rapidapi.com";
   if (!apiKey) {
     throw new Error("RAPIDAPI_KEY must be configured");
   }
@@ -255,14 +257,15 @@ export async function downloadInstagramReel(
     throw new Error(`Could not parse Instagram shortcode from URL: ${reelUrl}`);
   }
 
-  const res = await fetch(`https://${host}/api/instagram/mediaByShortcode`, {
-    method: "POST",
+  const qs = new URLSearchParams({
+    reel_post_code_or_url: shortcode,
+    type: "reel",
+  });
+  const res = await fetch(`https://${host}/get_media_data.php?${qs}`, {
     headers: {
       "x-rapidapi-key": apiKey,
       "x-rapidapi-host": host,
-      "Content-Type": "application/json",
     },
-    body: JSON.stringify({ shortcode }),
   });
 
   if (!res.ok) {

@@ -3,10 +3,13 @@ import path from "path";
 import crypto from "crypto";
 import { db, rawDb, schema } from "@/lib/db";
 
-// instagram120 RapidAPI client + normalizers for the Instagram browser page.
-// All endpoints are POST { username, ... } → Instagram private-API-shaped JSON.
-// The shapes vary between endpoints (and over time), so every normalizer here
-// is deliberately tolerant: walk the structure, take what we recognize.
+// instagram-scraper-stable-api (RapidAPI) client + normalizers for the
+// Instagram browser page. Migrated from instagram120, which RapidAPI delisted
+// entirely (its whole listing 404s now, not just individual endpoints).
+// Endpoints here are a mix of GET-with-query and POST-with-form-body, but the
+// response bodies are still Instagram private-API-shaped JSON, so every
+// normalizer below stays deliberately tolerant: walk the structure, take what
+// we recognize.
 
 const IG_CACHE_DIR = path.resolve("./storage/instagram");
 
@@ -197,24 +200,32 @@ export function rememberTaxonomy(kind: "model" | "niche", value: string): void {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+export const IG_DEFAULT_HOST = "instagram-scraper-stable-api.p.rapidapi.com";
+
 // ── Low-level API call ──
-// instagram120 is intermittently flaky on deep pagination: the very same
-// cursor that returns `{"response_type":"link not found"}` with a 500 will
-// serve a full page on an immediate retry. So transient failures (5xx, 429,
-// network) are retried with a short backoff. Genuine 4xx — bad key, unknown
-// username — fail fast, since retrying can't fix them.
+// Transient failures (5xx, 429, network) are retried with a short backoff.
+// Genuine 4xx — bad key, unknown username — fail fast, since retrying can't
+// fix them. (instagram120, the previous provider, needed this for flaky deep
+// pagination; kept here since a provider swap is no reason to trust a
+// scraper API's reliability by default.)
 const RETRYABLE_ATTEMPTS = 3;
 
+// Endpoints are a mix of GET-with-query-string and POST-with-form-body —
+// unlike instagram120, which was uniformly JSON POST. `params` becomes the
+// query string (GET) or the x-www-form-urlencoded body (POST).
 async function igFetch(
-  endpoint: string,
-  body: Record<string, unknown>
+  method: "GET" | "POST",
+  path: string,
+  params: Record<string, unknown>
 ): Promise<unknown> {
   const apiKey = process.env.RAPIDAPI_KEY;
-  const host =
-    process.env.RAPIDAPI_INSTAGRAM_HOST || "instagram120.p.rapidapi.com";
+  const host = process.env.RAPIDAPI_INSTAGRAM_HOST || IG_DEFAULT_HOST;
   if (!apiKey) {
     throw new Error("RAPIDAPI_KEY must be configured in .env.local");
   }
+
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) qs.set(k, String(v ?? ""));
 
   let lastError = "";
   for (let attempt = 0; attempt <= RETRYABLE_ATTEMPTS; attempt++) {
@@ -222,14 +233,18 @@ async function igFetch(
 
     let res: Response;
     try {
-      res = await fetch(`https://${host}/api/instagram/${endpoint}`, {
-        method: "POST",
+      const url =
+        method === "GET"
+          ? `https://${host}/${path}?${qs.toString()}`
+          : `https://${host}/${path}`;
+      res = await fetch(url, {
+        method,
         headers: {
           "x-rapidapi-key": apiKey,
           "x-rapidapi-host": host,
-          "Content-Type": "application/json",
+          "Content-Type": "application/x-www-form-urlencoded",
         },
-        body: JSON.stringify(body),
+        body: method === "POST" ? qs.toString() : undefined,
       });
     } catch (err) {
       // Network/TLS blip — worth another go.
@@ -256,14 +271,14 @@ async function igFetch(
 
     if (res.status < 500 && res.status !== 429) {
       throw new Error(
-        `instagram120 ${endpoint} (${res.status}): ${text.slice(0, 300)}`
+        `instagram-scraper-stable-api ${path} (${res.status}): ${text.slice(0, 300)}`
       );
     }
     lastError = `${res.status}: ${text.slice(0, 200)}`;
   }
 
   throw new Error(
-    `instagram120 ${endpoint} failed after ${RETRYABLE_ATTEMPTS + 1} attempts — ${lastError}`
+    `instagram-scraper-stable-api ${path} failed after ${RETRYABLE_ATTEMPTS + 1} attempts — ${lastError}`
   );
 }
 
@@ -302,15 +317,18 @@ const asStr = (v: unknown): string => (typeof v === "string" ? v : "");
 const asNum = (v: unknown): number | null =>
   typeof v === "number" && isFinite(v) ? v : null;
 
-// ── userInfo → profile ──
+// ── profile ──
 export async function fetchProfile(username: string): Promise<IgProfile> {
-  const data = await igFetch("userInfo", { username });
-  // Shape: { result: [ { user: {...} } ] } — but walk defensively.
-  let user: Json | null = null;
-  const result = (data as Json)?.result;
-  if (Array.isArray(result)) user = asObj(asObj(result[0])?.user);
-  if (!user) user = asObj(asObj((data as Json)?.result)?.user);
-  if (!user) user = asObj((data as Json)?.user);
+  const data = await igFetch("POST", "ig_get_fb_profile_v3.php", {
+    username_or_url: username,
+  });
+  // Shape: the user object flat at the top level (unlike instagram120, which
+  // wrapped it in { result: [ { user: {...} } ] }) — but walk defensively in
+  // case a variant response still nests it.
+  let user = asObj(data);
+  if (user && !user.username && !user.pk) {
+    user = asObj(asObj(user.result)?.user) ?? asObj(user.user) ?? user;
+  }
   if (!user) {
     throw new Error(`Account "${username}" not found (or API shape changed)`);
   }
@@ -366,58 +384,44 @@ function normalizeMedia(media: Json): IgFeedItem | null {
 }
 
 // ── reels / posts → feed page ──
-// reels shape: { result: { edges: [{ node: { media } }], paging_info? } }
-// posts shape differs (feed items array) — handle both.
+// Both shapes are { <reels|posts>: [{ node: {...} }], pagination_token } —
+// confirmed against the live API. Reels nest the media under node.media;
+// posts have the fields flat on node itself, hence the `?? node` fallback.
+const FEED_PATH: Record<"reels" | "posts", string> = {
+  reels: "get_ig_user_reels.php",
+  posts: "get_ig_user_posts.php",
+};
+
 export async function fetchFeed(
   username: string,
   kind: "reels" | "posts",
   maxId?: string
 ): Promise<IgFeedPage> {
-  const data = await igFetch(kind, { username, maxId: maxId || "" });
-  const result = asObj((data as Json).result) ?? (data as Json);
+  const data = await igFetch("POST", FEED_PATH[kind], {
+    username_or_url: username,
+    amount: 20,
+    pagination_token: maxId || "",
+  });
+  const result = data as Json;
 
   const items: IgFeedItem[] = [];
-  const edges = Array.isArray(result.edges) ? result.edges : null;
-  if (edges) {
-    for (const edge of edges) {
-      const node = asObj(asObj(edge)?.node);
+  const list = result[kind];
+  if (Array.isArray(list)) {
+    for (const raw of list) {
+      const node = asObj(asObj(raw)?.node);
       const media = asObj(node?.media) ?? node;
       if (!media) continue;
       const item = normalizeMedia(media);
       if (item) items.push(item);
     }
-  } else {
-    // posts-style: an array of items, possibly under result.items / result.medias
-    const arr = (["items", "medias", "posts"] as const)
-      .map((k) => result[k])
-      .find((v) => Array.isArray(v)) as unknown[] | undefined;
-    for (const raw of arr ?? []) {
-      const wrapper = asObj(raw);
-      if (!wrapper) continue;
-      const media = asObj(wrapper.media) ?? wrapper;
-      const item = normalizeMedia(media);
-      if (item) items.push(item);
-    }
   }
 
-  // Pagination cursor lives in different places depending on the endpoint.
-  // For reels it's page_info.end_cursor (a base64 GraphQL cursor) which still
-  // goes back as `maxId` — confirmed against the live API.
-  const paging = asObj(result.paging_info);
-  const pageInfo = asObj(result.page_info);
-  const nextMaxId =
-    asStr(paging?.max_id) ||
-    asStr(result.next_max_id) ||
-    asStr(result.max_id) ||
-    asStr(pageInfo?.end_cursor) ||
-    null;
+  // The provider doesn't send an explicit "no more pages" flag (unlike
+  // instagram120's has_next_page/more_available) — an empty token is the only
+  // signal available, so a stale token could still offer one dead-end page.
+  const nextMaxId = asStr(result.pagination_token) || null;
 
-  // Don't offer another page when the feed says there isn't one — a cursor is
-  // often still present at the end, and using it just fails.
-  const exhausted =
-    pageInfo?.has_next_page === false || paging?.more_available === false;
-
-  return { items, nextMaxId: exhausted ? null : nextMaxId || null };
+  return { items, nextMaxId };
 }
 
 // ── Hover-preview video URL resolution ──
@@ -458,7 +462,10 @@ function findMp4Url(obj: unknown): string | null {
 export async function fetchVideoUrl(shortcode: string): Promise<string> {
   const hit = videoUrlCache.get(shortcode);
   if (hit && Date.now() - hit.at < VIDEO_URL_TTL_MS) return hit.url;
-  const data = await igFetch("mediaByShortcode", { shortcode });
+  const data = await igFetch("GET", "get_media_data.php", {
+    reel_post_code_or_url: shortcode,
+    type: "reel",
+  });
   const url = findMp4Url(data);
   if (!url) throw new Error(`No video URL found for ${shortcode}`);
   videoUrlCache.set(shortcode, { url, at: Date.now() });
