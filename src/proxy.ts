@@ -19,8 +19,16 @@ const PUBLIC_PATHS = [
   "/api/auth/setup",
 ];
 
+// Login is temporarily disabled — the DB kept resetting on Render without a
+// persistent disk, which locked people out and let anyone re-claim the
+// founding-admin slot. Re-enable by deleting this early return once the disk
+// is attached and accounts are worth gating again.
+const LOGIN_DISABLED = true;
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  if (LOGIN_DISABLED) return NextResponse.next();
 
   if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
     return NextResponse.next();

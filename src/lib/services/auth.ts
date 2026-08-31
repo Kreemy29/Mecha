@@ -260,6 +260,17 @@ export async function currentUser(): Promise<PublicUser | null> {
 
 export const SESSION_MAX_AGE = SESSION_DAYS * 86400;
 
+// Stand-in identity while login is disabled (see proxy.ts) — keeps the
+// callers below (which attribute a request to `user.name`) working with no
+// session in play. Remove alongside LOGIN_DISABLED.
+const ANONYMOUS_USER: PublicUser = {
+  id: 0,
+  username: "anonymous",
+  name: "Someone",
+  role: "owner",
+  isAdmin: true,
+};
+
 // The authorization boundary, kept next to the data as Next's auth guide
 // recommends — proxy.ts only does an optimistic cookie check, so anything that
 // reads or writes real data validates here instead.
@@ -269,13 +280,7 @@ export async function requireUser(options?: { admin?: boolean }): Promise<
   | { user: PublicUser; deny: null }
   | { user: null; deny: Response }
 > {
-  const user = await currentUser();
-  if (!user) {
-    return {
-      user: null,
-      deny: Response.json({ error: "Not signed in" }, { status: 401 }),
-    };
-  }
+  const user = (await currentUser()) ?? ANONYMOUS_USER;
   if (options?.admin && !user.isAdmin) {
     return {
       user: null,
