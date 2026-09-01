@@ -271,14 +271,14 @@ async function igFetch(
 
     if (res.status < 500 && res.status !== 429) {
       throw new Error(
-        `instagram-scraper-stable-api ${path} (${res.status}): ${text.slice(0, 300)}`
+        `${host} ${path} (${res.status}): ${text.slice(0, 300)}`
       );
     }
     lastError = `${res.status}: ${text.slice(0, 200)}`;
   }
 
   throw new Error(
-    `instagram-scraper-stable-api ${path} failed after ${RETRYABLE_ATTEMPTS + 1} attempts — ${lastError}`
+    `${host} ${path} failed after ${RETRYABLE_ATTEMPTS + 1} attempts — ${lastError}`
   );
 }
 
