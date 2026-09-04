@@ -215,7 +215,8 @@ export const stylePresets = sqliteTable("style_presets", {
     .default(sql`(datetime('now'))`),
 });
 
-// Saved Instagram accounts ("models") browsed via the instagram120 RapidAPI.
+// Saved Instagram accounts ("models") browsed via services/instagram.ts's
+// scraper client (see that file for which provider is currently wired up).
 // These tables are created at runtime with CREATE TABLE IF NOT EXISTS (see
 // ensureInstagramTables in services/instagram.ts) so adding them never
 // requires a `db:push` (which can wipe hand-made data like backgrounds).

@@ -3,13 +3,14 @@ import path from "path";
 import crypto from "crypto";
 import { db, rawDb, schema } from "@/lib/db";
 
-// instagram-scraper-stable-api (RapidAPI) client + normalizers for the
-// Instagram browser page. Migrated from instagram120, which RapidAPI delisted
-// entirely (its whole listing 404s now, not just individual endpoints).
-// Endpoints here are a mix of GET-with-query and POST-with-form-body, but the
-// response bodies are still Instagram private-API-shaped JSON, so every
-// normalizer below stays deliberately tolerant: walk the structure, take what
-// we recognize.
+// Apify (apify/instagram-scraper actor) client + normalizers for the
+// Instagram browser page. Second migration in short order — first off
+// instagram120 (RapidAPI delisted it entirely), then off
+// instagram-scraper-stable-api (also RapidAPI) onto Apify, a proper scraping
+// platform rather than a single-developer RapidAPI reseller. One actor run
+// returns a JSON array of item objects with clean camelCase fields — no more
+// wrestling with Instagram's raw private-API shapes, but every normalizer
+// below still stays tolerant since a scraper's output can shift.
 
 const IG_CACHE_DIR = path.resolve("./storage/instagram");
 
@@ -200,52 +201,40 @@ export function rememberTaxonomy(kind: "model" | "niche", value: string): void {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export const IG_DEFAULT_HOST = "instagram-scraper-stable-api.p.rapidapi.com";
+export const APIFY_ACTOR = "apify~instagram-scraper";
 
 // ── Low-level API call ──
-// Transient failures (5xx, 429, network) are retried with a short backoff.
-// Genuine 4xx — bad key, unknown username — fail fast, since retrying can't
-// fix them. (instagram120, the previous provider, needed this for flaky deep
-// pagination; kept here since a provider swap is no reason to trust a
-// scraper API's reliability by default.)
-const RETRYABLE_ATTEMPTS = 3;
+// run-sync-get-dataset-items starts the actor run and blocks until it
+// finishes (or ~5 min, whichever first), returning the scraped items
+// directly — no separate poll step needed. Each call already takes ~10-25s
+// even on a small request, so retries are capped at 1 extra attempt rather
+// than the 3 a plain HTTP call could afford — three retries here could push
+// a single logical call past a minute.
+const RETRYABLE_ATTEMPTS = 1;
 
-// Endpoints are a mix of GET-with-query-string and POST-with-form-body —
-// unlike instagram120, which was uniformly JSON POST. `params` becomes the
-// query string (GET) or the x-www-form-urlencoded body (POST).
-async function igFetch(
-  method: "GET" | "POST",
-  path: string,
-  params: Record<string, unknown>
-): Promise<unknown> {
-  const apiKey = process.env.RAPIDAPI_KEY;
-  const host = process.env.RAPIDAPI_INSTAGRAM_HOST || IG_DEFAULT_HOST;
-  if (!apiKey) {
-    throw new Error("RAPIDAPI_KEY must be configured in .env.local");
+export async function apifyRun(input: Record<string, unknown>): Promise<unknown[]> {
+  const token = process.env.APIFY_TOKEN;
+  if (!token) {
+    throw new Error("APIFY_TOKEN must be configured in .env.local");
   }
-
-  const qs = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) qs.set(k, String(v ?? ""));
 
   let lastError = "";
   for (let attempt = 0; attempt <= RETRYABLE_ATTEMPTS; attempt++) {
-    if (attempt > 0) await sleep(500 * attempt);
+    if (attempt > 0) await sleep(1000 * attempt);
 
     let res: Response;
     try {
-      const url =
-        method === "GET"
-          ? `https://${host}/${path}?${qs.toString()}`
-          : `https://${host}/${path}`;
-      res = await fetch(url, {
-        method,
-        headers: {
-          "x-rapidapi-key": apiKey,
-          "x-rapidapi-host": host,
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: method === "POST" ? qs.toString() : undefined,
-      });
+      res = await fetch(
+        `https://api.apify.com/v2/acts/${APIFY_ACTOR}/run-sync-get-dataset-items`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(input),
+        }
+      );
     } catch (err) {
       // Network/TLS blip — worth another go.
       lastError = err instanceof Error ? err.message : String(err);
@@ -257,9 +246,8 @@ async function igFetch(
     if (res.ok) {
       try {
         const data = JSON.parse(text);
-        // Some failures arrive as 200 with success:false — treat as retryable.
-        if (data && typeof data === "object" && data.success === false) {
-          lastError = text.slice(0, 200);
+        if (!Array.isArray(data)) {
+          lastError = `expected an array, got: ${text.slice(0, 200)}`;
           continue;
         }
         return data;
@@ -270,15 +258,13 @@ async function igFetch(
     }
 
     if (res.status < 500 && res.status !== 429) {
-      throw new Error(
-        `${host} ${path} (${res.status}): ${text.slice(0, 300)}`
-      );
+      throw new Error(`apify instagram-scraper (${res.status}): ${text.slice(0, 300)}`);
     }
     lastError = `${res.status}: ${text.slice(0, 200)}`;
   }
 
   throw new Error(
-    `${host} ${path} failed after ${RETRYABLE_ATTEMPTS + 1} attempts — ${lastError}`
+    `apify instagram-scraper failed after ${RETRYABLE_ATTEMPTS + 1} attempts — ${lastError}`
   );
 }
 
@@ -319,155 +305,134 @@ const asNum = (v: unknown): number | null =>
 
 // ── profile ──
 export async function fetchProfile(username: string): Promise<IgProfile> {
-  const data = await igFetch("POST", "ig_get_fb_profile_v3.php", {
-    username_or_url: username,
+  const items = await apifyRun({
+    directUrls: [`https://www.instagram.com/${username}/`],
+    resultsType: "details",
+    resultsLimit: 1,
   });
-  // Shape: the user object flat at the top level (unlike instagram120, which
-  // wrapped it in { result: [ { user: {...} } ] }) — but walk defensively in
-  // case a variant response still nests it.
-  let user = asObj(data);
-  if (user && !user.username && !user.pk) {
-    user = asObj(asObj(user.result)?.user) ?? asObj(user.user) ?? user;
-  }
-  if (!user) {
+  const user = asObj(items[0]);
+  if (!user || (!user.username && !user.id)) {
     throw new Error(`Account "${username}" not found (or API shape changed)`);
   }
 
-  // Prefer the HD avatar when present.
-  const hd = asObj(user.hd_profile_pic_url_info);
-  const hdVersions = Array.isArray(user.hd_profile_pic_versions)
-    ? user.hd_profile_pic_versions
-    : [];
-  const bestVersion = asObj(hdVersions[hdVersions.length - 1]);
-  const profilePicUrl =
-    asStr(hd?.url) || asStr(bestVersion?.url) || asStr(user.profile_pic_url);
-
   return {
-    pk: asStr(user.pk) || String(user.pk ?? ""),
+    pk: asStr(user.id) || String(user.id ?? ""),
     username: asStr(user.username) || username,
-    fullName: asStr(user.full_name),
+    fullName: asStr(user.fullName),
     biography: asStr(user.biography),
-    followerCount: asNum(user.follower_count) ?? 0,
-    mediaCount: asNum(user.media_count) ?? 0,
-    profilePicUrl,
+    followerCount: asNum(user.followersCount) ?? 0,
+    mediaCount: asNum(user.postsCount) ?? 0,
+    // HD version is a plain field here — no more digging through a
+    // hd_profile_pic_url_info/hd_profile_pic_versions[] wrapper.
+    profilePicUrl: asStr(user.profilePicUrlHD) || asStr(user.profilePicUrl),
   };
 }
 
-// Pick a reasonably sized thumbnail (~480px) from image_versions2 candidates.
-function pickThumbnail(media: Json): string {
-  const iv = asObj(media.image_versions2);
-  const candidates = Array.isArray(iv?.candidates) ? iv.candidates : [];
-  const parsed = candidates
-    .map((c) => asObj(c))
-    .filter((c): c is Json => !!c && !!asStr(c.url))
-    .map((c) => ({ url: asStr(c.url), width: asNum(c.width) ?? 0 }));
-  if (parsed.length === 0) return "";
-  const mid = parsed.filter((c) => c.width >= 320 && c.width <= 720);
-  return (mid[0] || parsed[0]).url;
-}
-
-function normalizeMedia(media: Json): IgFeedItem | null {
-  const shortcode = asStr(media.code);
+function normalizeMedia(item: Json): IgFeedItem | null {
+  const shortcode = asStr(item.shortCode);
   if (!shortcode) return null;
-  const captionObj = asObj(media.caption);
+  const images = Array.isArray(item.images) ? item.images : [];
+  const timestamp = asStr(item.timestamp); // ISO string, unlike prior providers' unix seconds
   return {
-    pk: asStr(media.pk) || String(media.pk ?? ""),
+    pk: asStr(item.id) || String(item.id ?? ""),
     shortcode,
-    thumbnailUrl: pickThumbnail(media),
-    caption: asStr(captionObj?.text),
-    playCount: asNum(media.play_count) ?? asNum(media.view_count),
-    likeCount: asNum(media.like_count),
-    commentCount: asNum(media.comment_count),
-    takenAt: asNum(media.taken_at),
-    isVideo: asNum(media.media_type) === 2 || asStr(media.product_type) === "clips",
+    thumbnailUrl: asStr(item.displayUrl) || asStr(images[0]),
+    caption: asStr(item.caption),
+    playCount: asNum(item.videoPlayCount) ?? asNum(item.videoViewCount),
+    likeCount: asNum(item.likesCount),
+    commentCount: asNum(item.commentsCount),
+    takenAt: timestamp ? Math.floor(new Date(timestamp).getTime() / 1000) : null,
+    isVideo: item.type === "Video" || asStr(item.productType) === "clips",
   };
 }
 
 // ── reels / posts → feed page ──
-// Both shapes are { <reels|posts>: [{ node: {...} }], pagination_token } —
-// confirmed against the live API. Reels nest the media under node.media;
-// posts have the fields flat on node itself, hence the `?? node` fallback.
-const FEED_PATH: Record<"reels" | "posts", string> = {
-  reels: "get_ig_user_reels.php",
-  posts: "get_ig_user_posts.php",
-};
+// Apify has no incremental cursor the way both prior providers did — one run
+// just returns up to `resultsLimit` items from the top of the profile's feed.
+// "Load more" here means re-running with a bigger limit and slicing off what
+// was already shown: correct, but it re-scrapes (and re-bills) the earlier
+// items on every page rather than fetching only what's new. Fine for a few
+// pages of browsing, not free for scrolling deep into a feed. `maxId` doubles
+// as "how many items already shown".
+const FEED_PAGE_SIZE = 20;
 
 export async function fetchFeed(
   username: string,
   kind: "reels" | "posts",
   maxId?: string
 ): Promise<IgFeedPage> {
-  const data = await igFetch("POST", FEED_PATH[kind], {
-    username_or_url: username,
-    amount: 20,
-    pagination_token: maxId || "",
-  });
-  const result = data as Json;
+  const alreadyShown = maxId ? parseInt(maxId, 10) || 0 : 0;
+  const resultsLimit = alreadyShown + FEED_PAGE_SIZE;
 
-  const items: IgFeedItem[] = [];
-  const list = result[kind];
-  if (Array.isArray(list)) {
-    for (const raw of list) {
-      const node = asObj(asObj(raw)?.node);
-      const media = asObj(node?.media) ?? node;
-      if (!media) continue;
-      const item = normalizeMedia(media);
-      if (item) items.push(item);
-    }
+  const items = await apifyRun({
+    directUrls: [`https://www.instagram.com/${username}/`],
+    resultsType: kind,
+    resultsLimit,
+  });
+
+  const page = items
+    .map((raw) => asObj(raw))
+    .slice(alreadyShown)
+    .map((obj) => (obj ? normalizeMedia(obj) : null))
+    .filter((item): item is IgFeedItem => !!item);
+
+  // Fewer items came back than asked for — the feed is exhausted.
+  const nextMaxId = items.length >= resultsLimit ? String(resultsLimit) : null;
+
+  return { items: page, nextMaxId };
+}
+
+// ── Video URL resolution by shortcode ──
+// Used for both the reels-feed hover preview (fetchVideoUrl below) and reel
+// downloads (references.ts's downloadInstagramReel) — the two places that
+// only have a bare shortcode/URL and no fresh feed data with a videoUrl
+// already on it.
+//
+// Apify's actor treats /reel/ and /p/ URLs for the same content differently
+// — confirmed live: scraping an item under the "wrong" style for its content
+// type comes back empty, and the hover preview in particular is used for
+// both reels and regular video posts, so the caller often can't know which
+// style is right. Try the preferred style, then the other. A single-item
+// direct scrape can also get flagged restricted_page by Instagram itself
+// regardless of URL style (also confirmed live) — genuinely unavailable, not
+// a bug, hence surfacing Apify's own reason rather than a generic message.
+export async function resolveVideoUrl(
+  shortcode: string,
+  preferred: "reel" | "p" = "reel"
+): Promise<string> {
+  const styles = preferred === "reel" ? (["reel", "p"] as const) : (["p", "reel"] as const);
+
+  let lastItem: Json | null = null;
+  for (const urlPath of styles) {
+    const items = await apifyRun({
+      directUrls: [`https://www.instagram.com/${urlPath}/${shortcode}/`],
+      resultsType: urlPath === "reel" ? "reels" : "posts",
+      resultsLimit: 1,
+    });
+    const item = asObj(items[0]);
+    lastItem = item;
+    const url = asStr(item?.videoUrl);
+    if (url) return url;
   }
 
-  // The provider doesn't send an explicit "no more pages" flag (unlike
-  // instagram120's has_next_page/more_available) — an empty token is the only
-  // signal available, so a stale token could still offer one dead-end page.
-  const nextMaxId = asStr(result.pagination_token) || null;
-
-  return { items, nextMaxId };
+  const reason = asStr(lastItem?.errorDescription) || asStr(lastItem?.error);
+  throw new Error(
+    reason
+      ? `No video URL for ${shortcode}: ${reason}`
+      : `No video URL found for ${shortcode}`
+  );
 }
 
 // ── Hover-preview video URL resolution ──
-// The reels feed carries no video URL, so previews resolve one on demand via
-// mediaByShortcode. CDN URLs expire, hence the short-lived in-memory cache
-// (one API call per shortcode per ~30 min, not per hover).
+// CDN URLs expire, hence the short-lived in-memory cache (one call per
+// shortcode per ~30 min, not per hover).
 const videoUrlCache = new Map<string, { url: string; at: number }>();
 const VIDEO_URL_TTL_MS = 30 * 60 * 1000;
-
-function findMp4Url(obj: unknown): string | null {
-  if (typeof obj === "string") return null;
-  if (Array.isArray(obj)) {
-    for (const v of obj) {
-      const found = findMp4Url(v);
-      if (found) return found;
-    }
-    return null;
-  }
-  const rec = asObj(obj);
-  if (!rec) return null;
-  // video_versions is the canonical spot; generic .mp4 keys as fallback.
-  const versions = rec.video_versions;
-  if (Array.isArray(versions)) {
-    const url = asStr(asObj(versions[0])?.url);
-    if (url) return url;
-  }
-  for (const key of ["video_url", "videoUrl", "video", "download_url", "url"]) {
-    const val = rec[key];
-    if (typeof val === "string" && /^https?:\/\/.*\.mp4/i.test(val)) return val;
-  }
-  for (const v of Object.values(rec)) {
-    const found = findMp4Url(v);
-    if (found) return found;
-  }
-  return null;
-}
 
 export async function fetchVideoUrl(shortcode: string): Promise<string> {
   const hit = videoUrlCache.get(shortcode);
   if (hit && Date.now() - hit.at < VIDEO_URL_TTL_MS) return hit.url;
-  const data = await igFetch("GET", "get_media_data.php", {
-    reel_post_code_or_url: shortcode,
-    type: "reel",
-  });
-  const url = findMp4Url(data);
-  if (!url) throw new Error(`No video URL found for ${shortcode}`);
+  const url = await resolveVideoUrl(shortcode);
   videoUrlCache.set(shortcode, { url, at: Date.now() });
   return url;
 }

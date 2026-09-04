@@ -88,8 +88,8 @@ Open the app, then:
 | `XAI_API_KEY` | **Yes** | Grok prompt reasoning + vision |
 | `HIGGSFIELD_MCP_URL` | Yes (default set) | Higgsfield MCP endpoint |
 | `HIGGSFIELD_OAUTH_TOKEN` / `HIGGSFIELD_CLIENT_ID` | Auto | Managed by the in-app connect flow |
-| `RAPIDAPI_KEY` | For reels | Instagram reel download (instagram120) |
-| `RAPIDAPI_INSTAGRAM_HOST` | For reels | `instagram120.p.rapidapi.com` |
+| `APIFY_TOKEN` | For reels | Instagram browsing/reel download (`apify/instagram-scraper` actor) |
+| `RAPIDAPI_KEY` | Optional | Only needed alongside `RAPIDAPI_PINTEREST_HOST` below |
 | `RAPIDAPI_PINTEREST_HOST` | Optional | Override the built-in no-key Pinterest scraper |
 | `FAL_KEY` | Optional | Alternate image provider (nano-banana / seedream) |
 | `RUNNINGHUB_*` | Phase 3 | Talking-head + motion-capture video |

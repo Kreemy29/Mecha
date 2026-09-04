@@ -112,7 +112,7 @@ Required / important:
 - Higgsfield — OAuth via the UI; `HIGGSFIELD_MCP_URL=https://mcp.higgsfield.ai`.
 - `KIE_API_KEY`, `KIE_ENABLE_SAFETY_CHECKER` (→ `nsfw_checker`), `KIE_SEEDANCE_MODEL`.
 - `RUNNINGHUB_API_KEY`, `RUNNINGHUB_WAN_APP_ID` + node ids, `RUNNINGHUB_INSTANCE_TYPE=plus`.
-- `RAPIDAPI_KEY` — Instagram reel download.
+- `APIFY_TOKEN` — Instagram browsing/reel download (`apify/instagram-scraper` actor via `services/instagram.ts`'s `apifyRun`). Two prior RapidAPI providers (`instagram120`, then `instagram-scraper-stable-api`) were dropped in turn — the first got delisted from RapidAPI entirely, prompting the move to a real scraping platform instead of a RapidAPI reseller.
 - `FFMPEG_PATH` — absolute path to ffmpeg.exe (frame extraction / video re-encode).
 - `NODE_TLS_REJECT_UNAUTHORIZED=0` — this dev machine sits behind a TLS-intercepting
   proxy; without this, outbound HTTPS intermittently "fetch failed".

@@ -47,7 +47,8 @@ symlinks `./data` and `./storage` onto it at boot.
 - Gemini prompts: `GEMINI_API_KEY`, `GEMINI_MODEL` (`gemini-3.5-flash`)
 - KIE video: `KIE_API_KEY`, `KIE_SEEDANCE_MODEL`, `KIE_ENABLE_SAFETY_CHECKER`
 - Wan Animate: `RUNNINGHUB_API_KEY`, `RUNNINGHUB_WAN_APP_ID`, the node ids, `RUNNINGHUB_INSTANCE_TYPE=plus`
-- Instagram browsing/download: `RAPIDAPI_KEY`, `RAPIDAPI_INSTAGRAM_HOST`
+- Instagram browsing/download: `APIFY_TOKEN` (from [console.apify.com/settings/integrations](https://console.apify.com/settings/integrations))
+- Pinterest via a paid RapidAPI endpoint instead of the built-in scraper: `RAPIDAPI_KEY`, `RAPIDAPI_PINTEREST_HOST`
 
 **Do NOT set `NODE_TLS_REJECT_UNAUTHORIZED=0`.** That is a workaround for the
 dev machine's TLS-intercepting proxy. In production it disables certificate

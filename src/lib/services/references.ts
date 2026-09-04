@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { execSync } from "child_process";
+import { resolveVideoUrl } from "./instagram";
 
 const STORAGE_DIR = path.resolve("./storage/references");
 
@@ -204,7 +205,7 @@ export async function searchPinterest(
   return searchPinterestNative(query, pages);
 }
 
-// ── Instagram Reel Download (instagram-scraper-stable-api get_media_data.php) ──
+// ── Instagram Reel Download (Apify apify/instagram-scraper actor) ──
 
 // Extract the shortcode from an Instagram reel/post URL.
 // e.g. https://www.instagram.com/reel/DPRcWdvgI4P/ -> DPRcWdvgI4P
@@ -213,73 +214,17 @@ export function extractInstagramShortcode(url: string): string | null {
   return m ? m[1] : null;
 }
 
-// Deeply scan an object for the first .mp4 video url.
-function findVideoUrl(obj: unknown): string | null {
-  if (!obj) return null;
-  if (typeof obj === "string") {
-    return /^https?:\/\/.*\.mp4/i.test(obj) ? obj : null;
-  }
-  if (Array.isArray(obj)) {
-    for (const v of obj) {
-      const found = findVideoUrl(v);
-      if (found) return found;
-    }
-    return null;
-  }
-  if (typeof obj === "object") {
-    const rec = obj as Record<string, unknown>;
-    // Prefer explicit video keys first
-    for (const key of ["video_url", "videoUrl", "video", "download_url", "url"]) {
-      const val = rec[key];
-      if (typeof val === "string" && /^https?:\/\/.*\.mp4/i.test(val)) return val;
-    }
-    for (const v of Object.values(rec)) {
-      const found = findVideoUrl(v);
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
 export async function downloadInstagramReel(
   reelUrl: string
 ): Promise<{ videoPath: string; framePath: string }> {
-  const apiKey = process.env.RAPIDAPI_KEY;
-  const host =
-    process.env.RAPIDAPI_INSTAGRAM_HOST ||
-    "instagram-scraper-stable-api.p.rapidapi.com";
-  if (!apiKey) {
-    throw new Error("RAPIDAPI_KEY must be configured");
-  }
-
   const shortcode = extractInstagramShortcode(reelUrl);
   if (!shortcode) {
     throw new Error(`Could not parse Instagram shortcode from URL: ${reelUrl}`);
   }
 
-  const qs = new URLSearchParams({
-    reel_post_code_or_url: shortcode,
-    type: "reel",
-  });
-  const res = await fetch(`https://${host}/get_media_data.php?${qs}`, {
-    headers: {
-      "x-rapidapi-key": apiKey,
-      "x-rapidapi-host": host,
-    },
-  });
-
-  if (!res.ok) {
-    throw new Error(`Instagram API error (${res.status}): ${await res.text()}`);
-  }
-
-  const data = await res.json();
-  const videoUrl = findVideoUrl(data);
-
-  if (!videoUrl) {
-    throw new Error(
-      `Could not extract video URL from Instagram response: ${JSON.stringify(data).slice(0, 300)}`
-    );
-  }
+  // The caller's own URL already tells us which style to prefer.
+  const preferred = /instagram\.com\/reels?\//.test(reelUrl) ? "reel" : "p";
+  const videoUrl = await resolveVideoUrl(shortcode, preferred);
 
   // Download video
   ensureDir(STORAGE_DIR);
