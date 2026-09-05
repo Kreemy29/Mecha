@@ -89,6 +89,16 @@ async function getValidAccessToken(): Promise<string | null> {
       try {
         tokens = await refreshAccessToken(tokens);
       } catch (err) {
+        // The web process and the worker process share this token file but
+        // not memory. Higgsfield's refresh_token is single-use and rotates,
+        // so when both see the token as expired around the same time, only
+        // the first refresh succeeds — the second's refresh_token is already
+        // consumed and gets rejected. Re-read the file: if the other process
+        // won the race, use what it wrote instead of going unauthenticated.
+        const latest = loadTokens();
+        if (latest?.accessToken && latest.refreshToken !== tokens.refreshToken) {
+          return latest.accessToken;
+        }
         console.error("[Higgsfield]", err);
         return null;
       }
