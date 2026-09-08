@@ -317,6 +317,40 @@ export const winningFormats = sqliteTable("winning_formats", {
   shortcode: text("shortcode"),
   notes: text("notes"),
   addedBy: text("added_by"),
+  // Added for the weekly formats board — both nullable so pre-existing rows
+  // (added before that board existed) stay valid with neither set.
+  weekId: integer("week_id").references(() => formatWeeks.id),
+  // A saved_generations.higgsfieldId (see higgsfield.ts) showing the VA
+  // exactly how this format's example was produced — prompt, settings, and
+  // output. Loose text reference rather than a DB foreign key since saved
+  // generations live in a table keyed by an external (Higgsfield) id, not an
+  // internal autoincrement one.
+  methodGenerationId: text("method_generation_id"),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`(datetime('now'))`),
+});
+
+// A content week ("Week 4") the operator plans formats under. Just a label —
+// deleting one only detaches its formats (see /api/format-weeks), never
+// deletes the videos themselves.
+export const formatWeeks = sqliteTable("format_weeks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  label: text("label").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`(datetime('now'))`),
+});
+
+// How many of a given format are needed from each model this week. A format
+// can carry several of these — one per model it's assigned to.
+export const formatAssignments = sqliteTable("format_assignments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  formatId: integer("format_id")
+    .notNull()
+    .references(() => winningFormats.id),
+  model: text("model").notNull(),
+  quota: integer("quota").notNull().default(1),
   createdAt: text("created_at")
     .notNull()
     .default(sql`(datetime('now'))`),

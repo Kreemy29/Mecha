@@ -13,6 +13,7 @@ import {
   Shirt,
   History,
   Megaphone,
+  LayoutGrid,
 } from "lucide-react";
 import { InstagramIcon } from "@/components/icons";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,7 @@ const navItems = [
   { href: "/images", label: "Images", icon: Image },
   { href: "/motion-capture", label: "Motion Capture", icon: Clapperboard },
   { href: "/methods", label: "Methods", icon: History },
+  { href: "/formats", label: "Formats", icon: LayoutGrid },
   { href: "/seedance", label: "Seedance", icon: Shirt },
   { href: "/characters", label: "Characters", icon: Users },
   { href: "/presets", label: "Presets", icon: Layers },

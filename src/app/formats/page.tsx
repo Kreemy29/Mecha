@@ -1,0 +1,654 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
+import {
+  Plus,
+  X,
+  Trash2,
+  Link as LinkIcon,
+  Upload,
+  Loader2,
+  Sparkles,
+  Bookmark,
+  ExternalLink,
+  Clapperboard,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+
+interface FormatWeek {
+  id: number;
+  label: string;
+  createdAt: string;
+}
+
+interface Assignment {
+  id: number;
+  formatId: number;
+  model: string;
+  quota: number;
+}
+
+interface FormatRow {
+  id: number;
+  title: string;
+  videoPath: string | null;
+  thumbPath: string | null;
+  sourceUrl: string | null;
+  shortcode: string | null;
+  notes: string | null;
+  weekId: number | null;
+  methodGenerationId: string | null;
+  assignments: Assignment[];
+}
+
+interface SavedGeneration {
+  higgsfieldId: string;
+  type: string;
+  model: string;
+  prompt: string;
+  outputPath: string | null;
+  thumbnailPath: string | null;
+}
+
+interface IgMediaRow {
+  id: number;
+  shortcode: string;
+  caption: string | null;
+  thumbPath: string | null;
+  videoPath: string | null;
+}
+
+const fileUrl = (p: string) => `/api/files/${p.replace(/\\/g, "/")}`;
+
+type AddMode = "existing" | "link" | "upload";
+
+export default function FormatsPage() {
+  const [weeks, setWeeks] = useState<FormatWeek[]>([]);
+  const [selectedWeekId, setSelectedWeekId] = useState<number | null>(null);
+  const [formats, setFormats] = useState<FormatRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newWeekLabel, setNewWeekLabel] = useState("");
+
+  const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [savedGens, setSavedGens] = useState<SavedGeneration[]>([]);
+  const [savedMedia, setSavedMedia] = useState<IgMediaRow[]>([]);
+
+  const [adding, setAdding] = useState(false);
+  const [addMode, setAddMode] = useState<AddMode>("existing");
+  const [addTitle, setAddTitle] = useState("");
+  const [addUrl, setAddUrl] = useState("");
+  const [addMediaId, setAddMediaId] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const [methodPickerFor, setMethodPickerFor] = useState<number | null>(null);
+  const [assignFor, setAssignFor] = useState<number | null>(null);
+  const [assignModel, setAssignModel] = useState("");
+  const [assignQuota, setAssignQuota] = useState("1");
+
+  const loadWeeks = useCallback(async () => {
+    const res = await fetch("/api/format-weeks");
+    const rows: FormatWeek[] = await res.json();
+    setWeeks(rows);
+    return rows;
+  }, []);
+
+  const loadFormats = useCallback(async (weekId: number) => {
+    const res = await fetch(`/api/winning-formats?weekId=${weekId}`);
+    const rows = await res.json();
+    setFormats(Array.isArray(rows) ? rows : []);
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const [weekRows] = await Promise.all([
+          loadWeeks(),
+          fetch("/api/instagram/taxonomy")
+            .then((r) => r.json())
+            .then((d) => setModelOptions(d.models || []))
+            .catch(() => {}),
+          fetch("/api/higgsfield/generations/saved")
+            .then((r) => r.json())
+            .then((d) => setSavedGens(d.items || []))
+            .catch(() => {}),
+          fetch("/api/instagram/media")
+            .then((r) => r.json())
+            .then((d) => setSavedMedia(Array.isArray(d) ? d.filter((m: IgMediaRow) => m.videoPath) : []))
+            .catch(() => {}),
+        ]);
+        if (weekRows.length > 0) {
+          setSelectedWeekId(weekRows[0].id);
+          await loadFormats(weekRows[0].id);
+        }
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : "Failed to load");
+      } finally {
+        setLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const selectWeek = async (id: number) => {
+    setSelectedWeekId(id);
+    setLoading(true);
+    try {
+      await loadFormats(id);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createWeek = async () => {
+    if (!newWeekLabel.trim()) return;
+    try {
+      const res = await fetch("/api/format-weeks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: newWeekLabel.trim() }),
+      });
+      const row = await res.json();
+      if (row.error) throw new Error(row.error);
+      setWeeks((prev) => [row, ...prev]);
+      setNewWeekLabel("");
+      selectWeek(row.id);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Could not create week");
+    }
+  };
+
+  const removeWeek = async (id: number) => {
+    await fetch(`/api/format-weeks?id=${id}`, { method: "DELETE" });
+    setWeeks((prev) => prev.filter((w) => w.id !== id));
+    if (selectedWeekId === id) {
+      setSelectedWeekId(null);
+      setFormats([]);
+    }
+  };
+
+  const addFormat = async () => {
+    if (!selectedWeekId) return;
+    setSaving(true);
+    try {
+      let row;
+      if (addMode === "upload") {
+        return; // handled by the file input's own onChange (addFormatFromFile)
+      } else if (addMode === "existing") {
+        if (!addMediaId) {
+          toast.error("Pick a saved clip");
+          return;
+        }
+        const res = await fetch("/api/winning-formats", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mediaId: Number(addMediaId),
+            title: addTitle.trim(),
+            weekId: selectedWeekId,
+          }),
+        });
+        row = await res.json();
+      } else {
+        if (!addUrl.trim()) {
+          toast.error("Paste an Instagram link");
+          return;
+        }
+        const res = await fetch("/api/winning-formats", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: addUrl.trim(),
+            title: addTitle.trim(),
+            weekId: selectedWeekId,
+          }),
+        });
+        row = await res.json();
+      }
+      if (row.error) throw new Error(row.error);
+      setFormats((prev) => [row, ...prev]);
+      setAddTitle("");
+      setAddUrl("");
+      setAddMediaId("");
+      setAdding(false);
+      toast.success("Format added");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Could not add format");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addFormatFromFile = async (file: File) => {
+    if (!selectedWeekId) return;
+    setSaving(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("title", addTitle.trim() || file.name);
+      form.append("weekId", String(selectedWeekId));
+      const res = await fetch("/api/winning-formats", { method: "POST", body: form });
+      const row = await res.json();
+      if (row.error) throw new Error(row.error);
+      setFormats((prev) => [row, ...prev]);
+      setAddTitle("");
+      setAdding(false);
+      toast.success("Format added");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeFormat = async (id: number) => {
+    await fetch(`/api/winning-formats?id=${id}`, { method: "DELETE" });
+    setFormats((prev) => prev.filter((f) => f.id !== id));
+  };
+
+  const attachMethod = async (formatId: number, higgsfieldId: string) => {
+    try {
+      const res = await fetch("/api/winning-formats", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: formatId, methodGenerationId: higgsfieldId }),
+      });
+      const row = await res.json();
+      if (row.error) throw new Error(row.error);
+      setFormats((prev) =>
+        prev.map((f) => (f.id === formatId ? { ...f, methodGenerationId: higgsfieldId } : f))
+      );
+      setMethodPickerFor(null);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Could not attach method");
+    }
+  };
+
+  const detachMethod = async (formatId: number) => {
+    await fetch("/api/winning-formats", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: formatId, methodGenerationId: null }),
+    });
+    setFormats((prev) =>
+      prev.map((f) => (f.id === formatId ? { ...f, methodGenerationId: null } : f))
+    );
+  };
+
+  const addAssignment = async (formatId: number) => {
+    if (!assignModel.trim()) return;
+    try {
+      const res = await fetch("/api/format-assignments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          formatId,
+          model: assignModel.trim(),
+          quota: Number(assignQuota) || 1,
+        }),
+      });
+      const row = await res.json();
+      if (row.error) throw new Error(row.error);
+      setFormats((prev) =>
+        prev.map((f) =>
+          f.id === formatId ? { ...f, assignments: [...f.assignments, row] } : f
+        )
+      );
+      setAssignFor(null);
+      setAssignModel("");
+      setAssignQuota("1");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Could not add assignment");
+    }
+  };
+
+  const removeAssignment = async (formatId: number, assignmentId: number) => {
+    await fetch(`/api/format-assignments?id=${assignmentId}`, { method: "DELETE" });
+    setFormats((prev) =>
+      prev.map((f) =>
+        f.id === formatId
+          ? { ...f, assignments: f.assignments.filter((a) => a.id !== assignmentId) }
+          : f
+      )
+    );
+  };
+
+  return (
+    <div className="flex h-screen pt-20">
+      {/* Weeks */}
+      <div className="w-56 shrink-0 border-r border-white/10 overflow-y-auto p-3 space-y-2">
+        <h2 className="text-sm font-semibold px-1 pb-2">Formats</h2>
+        <div className="flex gap-1.5">
+          <Input
+            value={newWeekLabel}
+            onChange={(e) => setNewWeekLabel(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && createWeek()}
+            placeholder="Week 4"
+            className="glass border-white/10 h-8 text-xs"
+          />
+          <Button size="sm" onClick={createWeek} className="h-8 px-2 shrink-0">
+            <Plus className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        <div className="space-y-1 pt-1">
+          {weeks.map((w) => (
+            <div
+              key={w.id}
+              className={cn(
+                "group flex items-center gap-1 rounded-lg",
+                selectedWeekId === w.id
+                  ? "bg-[oklch(0.75_0.15_270_/_15%)]"
+                  : "hover:bg-white/5"
+              )}
+            >
+              <button
+                onClick={() => selectWeek(w.id)}
+                className="flex-1 text-left px-3 py-1.5 text-xs font-medium"
+              >
+                {w.label}
+              </button>
+              <button
+                onClick={() => removeWeek(w.id)}
+                className="opacity-0 group-hover:opacity-100 pr-2 text-muted-foreground hover:text-red-400"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Formats for the selected week */}
+      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        {!selectedWeekId ? (
+          <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+            Create a week to start dropping formats into it.
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">
+                {weeks.find((w) => w.id === selectedWeekId)?.label}
+              </h3>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setAdding((v) => !v)}
+                className="rounded-xl border-white/10 gap-1.5 text-xs"
+              >
+                {adding ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+                {adding ? "Cancel" : "Add format"}
+              </Button>
+            </div>
+
+            {adding && (
+              <div className="space-y-3 p-4 rounded-xl glass">
+                <Input
+                  value={addTitle}
+                  onChange={(e) => setAddTitle(e.target.value)}
+                  placeholder="Name this format"
+                  className="glass border-white/10 h-8 text-xs"
+                />
+                <div className="glass rounded-xl p-1 flex gap-1">
+                  {(["existing", "link", "upload"] as AddMode[]).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setAddMode(m)}
+                      className={cn(
+                        "flex-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                        addMode === m
+                          ? "bg-white/10 text-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {m === "existing" ? "Saved clip" : m === "link" ? "Instagram link" : "Upload"}
+                    </button>
+                  ))}
+                </div>
+
+                {addMode === "existing" && (
+                  <select
+                    value={addMediaId}
+                    onChange={(e) => setAddMediaId(e.target.value)}
+                    className="w-full glass rounded-xl px-3 py-1.5 text-xs bg-transparent"
+                  >
+                    <option value="" className="bg-background">
+                      Pick a saved clip...
+                    </option>
+                    {savedMedia.map((m) => (
+                      <option key={m.id} value={m.id} className="bg-background">
+                        {m.caption?.slice(0, 60) || m.shortcode}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                {addMode === "link" && (
+                  <div className="flex gap-2">
+                    <Input
+                      value={addUrl}
+                      onChange={(e) => setAddUrl(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && addFormat()}
+                      placeholder="https://www.instagram.com/reel/..."
+                      className="glass border-white/10 h-8 text-xs flex-1"
+                    />
+                  </div>
+                )}
+
+                {addMode === "upload" ? (
+                  <label className="inline-flex">
+                    <input
+                      type="file"
+                      accept="video/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) addFormatFromFile(f);
+                        e.target.value = "";
+                      }}
+                    />
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1.5 h-8 px-3 rounded-xl border border-white/10 text-xs cursor-pointer hover:bg-white/5",
+                        saving && "pointer-events-none opacity-50"
+                      )}
+                    >
+                      {saving ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Upload className="h-3.5 w-3.5" />
+                      )}
+                      Upload video
+                    </span>
+                  </label>
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={addFormat}
+                    disabled={saving}
+                    className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-1.5 text-xs"
+                  >
+                    {saving ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : addMode === "link" ? (
+                      <LinkIcon className="h-3.5 w-3.5" />
+                    ) : (
+                      <Plus className="h-3.5 w-3.5" />
+                    )}
+                    Add
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {loading ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-64 rounded-xl" />
+                ))}
+              </div>
+            ) : formats.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Nothing dropped for this week yet.
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {formats.map((f) => {
+                  const method = savedGens.find((g) => g.higgsfieldId === f.methodGenerationId);
+                  return (
+                    <div key={f.id} className="glass rounded-xl p-3 space-y-2 group relative">
+                      <button
+                        onClick={() => removeFormat(f.id)}
+                        className="absolute top-2 right-2 z-10 h-6 w-6 rounded-md bg-black/60 hover:bg-red-500/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Remove"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+
+                      {f.videoPath ? (
+                        <video
+                          src={fileUrl(f.videoPath)}
+                          poster={f.thumbPath ? fileUrl(f.thumbPath) : undefined}
+                          controls
+                          playsInline
+                          preload="none"
+                          className="w-full aspect-[9/16] rounded-lg object-cover bg-black"
+                        />
+                      ) : (
+                        <div className="w-full aspect-[9/16] rounded-lg bg-white/5 flex items-center justify-center">
+                          <Clapperboard className="h-6 w-6 text-muted-foreground" />
+                        </div>
+                      )}
+
+                      <p className="text-xs font-medium truncate" title={f.title}>
+                        {f.title}
+                      </p>
+                      {f.sourceUrl && (
+                        <a
+                          href={f.sourceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[10px] text-[oklch(0.85_0.12_270)] hover:underline inline-flex items-center gap-1"
+                        >
+                          <ExternalLink className="h-2.5 w-2.5" /> Instagram
+                        </a>
+                      )}
+
+                      {/* Method */}
+                      <div className="border-t border-white/5 pt-2">
+                        {method ? (
+                          <div className="flex items-center gap-1.5 text-[10px]">
+                            <Sparkles className="h-3 w-3 text-[oklch(0.85_0.12_270)] shrink-0" />
+                            <span className="truncate flex-1" title={method.prompt}>
+                              {method.model}: {method.prompt.slice(0, 40)}
+                            </span>
+                            <button
+                              onClick={() => detachMethod(f.id)}
+                              className="text-muted-foreground hover:text-red-400"
+                            >
+                              <X className="h-2.5 w-2.5" />
+                            </button>
+                          </div>
+                        ) : methodPickerFor === f.id ? (
+                          <div className="space-y-1">
+                            <select
+                              onChange={(e) => e.target.value && attachMethod(f.id, e.target.value)}
+                              className="w-full glass rounded-lg px-2 py-1 text-[10px] bg-transparent"
+                              defaultValue=""
+                            >
+                              <option value="" className="bg-background">
+                                Pick a saved generation...
+                              </option>
+                              {savedGens.map((g) => (
+                                <option
+                                  key={g.higgsfieldId}
+                                  value={g.higgsfieldId}
+                                  className="bg-background"
+                                >
+                                  {g.prompt.slice(0, 50)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setMethodPickerFor(f.id)}
+                            className="text-[10px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+                          >
+                            <Sparkles className="h-3 w-3" /> Attach method
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Assignments */}
+                      <div className="border-t border-white/5 pt-2 space-y-1.5">
+                        <div className="flex flex-wrap gap-1">
+                          {f.assignments.map((a) => (
+                            <Badge
+                              key={a.id}
+                              className="bg-white/10 text-[10px] gap-1 pr-1"
+                            >
+                              {a.model}: {a.quota}
+                              <button
+                                onClick={() => removeAssignment(f.id, a.id)}
+                                className="hover:text-red-400"
+                              >
+                                <X className="h-2.5 w-2.5" />
+                              </button>
+                            </Badge>
+                          ))}
+                        </div>
+                        {assignFor === f.id ? (
+                          <div className="flex gap-1">
+                            <input
+                              list="model-options"
+                              value={assignModel}
+                              onChange={(e) => setAssignModel(e.target.value)}
+                              placeholder="Model"
+                              className="glass border-white/10 rounded-lg px-2 py-1 text-[10px] flex-1 min-w-0 bg-transparent"
+                            />
+                            <input
+                              type="number"
+                              min={1}
+                              value={assignQuota}
+                              onChange={(e) => setAssignQuota(e.target.value)}
+                              className="glass border-white/10 rounded-lg px-2 py-1 text-[10px] w-12 bg-transparent"
+                            />
+                            <button
+                              onClick={() => addAssignment(f.id)}
+                              className="text-[oklch(0.85_0.12_270)] hover:opacity-80"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setAssignFor(f.id)}
+                            className="text-[10px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+                          >
+                            <Bookmark className="h-3 w-3" /> Assign a model
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <datalist id="model-options">
+        {modelOptions.map((m) => (
+          <option key={m} value={m} />
+        ))}
+      </datalist>
+    </div>
+  );
+}
