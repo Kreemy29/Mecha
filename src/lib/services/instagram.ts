@@ -356,25 +356,62 @@ function normalizeMedia(item: Json): IgFeedItem | null {
 // as "how many items already shown".
 const FEED_PAGE_SIZE = 20;
 
+// Every fetchFeed re-scrapes from the top (see comment above), so switching
+// back and forth between accounts in the sidebar re-pays the 10-25s Apify
+// run each time even though nothing changed. Cache the raw scrape per
+// (username, kind, resultsLimit) for the life of the process — cheap since
+// accounts are a small, revisited set — and rely on the caller explicitly
+// asking for `forceRefresh` (the UI's "Refresh profile" button) to bust it,
+// since otherwise a permanent cache would mean new reels never show up.
+// Note this is in-memory only: it does not survive a restart/redeploy.
+const feedCache = new Map<string, unknown[]>();
+
 export async function fetchFeed(
   username: string,
   kind: "reels" | "posts",
-  maxId?: string
+  maxId?: string,
+  forceRefresh = false
 ): Promise<IgFeedPage> {
   const alreadyShown = maxId ? parseInt(maxId, 10) || 0 : 0;
   const resultsLimit = alreadyShown + FEED_PAGE_SIZE;
 
-  const items = await apifyRun({
-    directUrls: [`https://www.instagram.com/${username}/`],
-    resultsType: kind,
-    resultsLimit,
-  });
+  const cacheKey = `${username}:${kind}:${resultsLimit}`;
+  const cached = !forceRefresh ? feedCache.get(cacheKey) : undefined;
+  const fromCache = !!cached;
+  const items = cached
+    ? cached
+    : await apifyRun({
+        directUrls: [`https://www.instagram.com/${username}/`],
+        resultsType: kind,
+        resultsLimit,
+      });
 
-  const page = items
-    .map((raw) => asObj(raw))
+  const rawObjs = items.map((raw) => asObj(raw));
+  const page = rawObjs
     .slice(alreadyShown)
     .map((obj) => (obj ? normalizeMedia(obj) : null))
     .filter((item): item is IgFeedItem => !!item);
+
+  // A transient scrape failure (rate limit, block, restricted page) comes
+  // back as a 200 with an error-shaped item rather than a thrown error —
+  // normalizeMedia filters it out for lack of a shortcode, so without this
+  // check it reads as "no reels found" instead of the real reason. Confirmed
+  // live (see resolveVideoUrl's identical error/errorDescription handling).
+  if (page.length === 0 && rawObjs.length > 0) {
+    const errItem = rawObjs.find((o) => o && (o.error || o.errorDescription));
+    if (errItem) {
+      throw new Error(
+        `Instagram fetch failed for @${username}: ${
+          asStr(errItem.errorDescription) || asStr(errItem.error)
+        }`
+      );
+    }
+  }
+
+  // Only cache a response we didn't just reject above.
+  if (!fromCache) {
+    feedCache.set(cacheKey, items);
+  }
 
   // Fewer items came back than asked for — the feed is exhausted.
   const nextMaxId = items.length >= resultsLimit ? String(resultsLimit) : null;

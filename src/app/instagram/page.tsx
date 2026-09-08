@@ -206,13 +206,15 @@ export default function InstagramPage() {
 
   const openAssign = (item: FeedItem | SavedItem) => setAssignFor(item);
 
-  const loadFeed = useCallback(async (account: IgAccount) => {
+  const loadFeed = useCallback(async (account: IgAccount, forceRefresh = false) => {
     setLoadingFeed(true);
     setFeed([]);
     setNextMaxId(null);
     try {
       const res = await fetch(
-        `/api/instagram/feed?username=${encodeURIComponent(account.username)}`
+        `/api/instagram/feed?username=${encodeURIComponent(account.username)}${
+          forceRefresh ? "&force=1" : ""
+        }`
       );
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -353,7 +355,7 @@ export default function InstagramPage() {
       if (row.error) throw new Error(row.error);
       await loadAccounts();
       setSelected(row);
-      loadFeed(row);
+      loadFeed(row, true);
       toast.success(`Refreshed @${row.username}`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Refresh failed");

@@ -9,11 +9,12 @@ export async function GET(request: NextRequest) {
     const username = (sp.get("username") || "").trim().replace(/^@/, "");
     const kind = sp.get("kind") === "posts" ? "posts" : "reels";
     const maxId = sp.get("maxId") || undefined;
+    const force = sp.get("force") === "1";
     if (!username) {
       return NextResponse.json({ error: "username required" }, { status: 400 });
     }
 
-    const page = await fetchFeed(username, kind, maxId);
+    const page = await fetchFeed(username, kind, maxId, force);
     const saved = savedShortcodes();
     return NextResponse.json({
       items: page.items.map((item) => ({
