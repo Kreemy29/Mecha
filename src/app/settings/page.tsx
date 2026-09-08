@@ -17,11 +17,19 @@ import {
   Key,
   Eye,
   EyeOff,
+  Trash2,
 } from "lucide-react";
+
+interface HfAccount {
+  id: string;
+  label: string;
+}
 
 interface HfStatus {
   connected: boolean;
   hasToken: boolean;
+  accounts: HfAccount[];
+  activeAccountId: string | null;
 }
 
 interface McpTool {
@@ -43,9 +51,37 @@ export default function SettingsPage() {
       const res = await fetch("/api/higgsfield/status");
       setHfStatus(await res.json());
     } catch {
-      setHfStatus({ connected: false, hasToken: false });
+      setHfStatus({ connected: false, hasToken: false, accounts: [], activeAccountId: null });
     }
   }, []);
+
+  const switchAccount = async (id: string) => {
+    try {
+      const res = await fetch("/api/higgsfield/accounts/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      toast.success("Switched active Higgsfield account");
+      fetchStatus();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to switch account");
+    }
+  };
+
+  const removeAccount = async (id: string) => {
+    try {
+      await fetch(`/api/higgsfield/accounts?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      toast.success("Account removed");
+      fetchStatus();
+    } catch {
+      toast.error("Failed to remove account");
+    }
+  };
 
   useEffect(() => {
     fetchStatus();
@@ -174,9 +210,11 @@ export default function SettingsPage() {
           {/* Primary: one-click OAuth connect */}
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
-              Connect your Higgsfield account in one click. You&apos;ll be taken to
+              Connect a Higgsfield account in one click. You&apos;ll be taken to
               Higgsfield&apos;s sign-in page to authorize, then redirected back here.
-              The access token is captured and refreshed automatically.
+              The access token is captured and refreshed automatically. Signing in
+              with a different Higgsfield login connects it as a separate account
+              alongside any others.
             </p>
             <a href="/api/higgsfield/connect" className="inline-block">
               <Button
@@ -188,11 +226,61 @@ export default function SettingsPage() {
               >
                 <Plug className="h-4 w-4" />
                 {hfStatus?.hasToken
-                  ? "Reconnect Higgsfield MCP"
+                  ? "Connect another Higgsfield account"
                   : "Connect Higgsfield MCP"}
               </Button>
             </a>
           </div>
+
+          {/* Connected accounts */}
+          {hfStatus && hfStatus.accounts.length > 0 && (
+            <div className="space-y-2 border-t border-white/5 pt-3">
+              <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Connected accounts
+              </label>
+              <div className="space-y-1.5">
+                {hfStatus.accounts.map((acct) => {
+                  const isActive = acct.id === hfStatus.activeAccountId;
+                  return (
+                    <div
+                      key={acct.id}
+                      className="flex items-center gap-2 p-2 rounded-xl glass text-sm"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => !isActive && switchAccount(acct.id)}
+                        disabled={isActive}
+                        className={`flex items-center gap-2 flex-1 text-left ${
+                          isActive ? "" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                        title={isActive ? "Active account" : "Switch to this account"}
+                      >
+                        <CheckCircle2
+                          className={`h-4 w-4 shrink-0 ${
+                            isActive ? "text-emerald-400" : "text-muted-foreground/30"
+                          }`}
+                        />
+                        {acct.label}
+                        {isActive && (
+                          <Badge className="text-[10px] bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                            active
+                          </Badge>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeAccount(acct.id)}
+                        className="text-muted-foreground hover:text-red-400 transition-colors p-1"
+                        title="Remove this account"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Advanced: manual token paste */}
           <div className="border-t border-white/5 pt-3">

@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { upsertAccount } from "./higgsfield-accounts";
 
 const MCP_URL = process.env.HIGGSFIELD_MCP_URL || "https://mcp.higgsfield.ai";
 const AUTHORIZE_EP = `${MCP_URL}/oauth2/authorize`;
@@ -9,9 +10,25 @@ const REGISTER_EP = `${MCP_URL}/oauth2/register`;
 const SCOPE = "openid email offline_access";
 
 const DATA_DIR = path.resolve("./data");
-const TOKEN_PATH = path.join(DATA_DIR, "higgsfield-token.json");
 const CLIENT_PATH = path.join(DATA_DIR, "higgsfield-oauth-client.json");
 const PENDING_PATH = path.join(DATA_DIR, "higgsfield-oauth-pending.json");
+
+// Higgsfield's OAuth (via Clerk) always returns an id_token alongside the
+// access token when the "openid email" scope is granted — decode it (no
+// signature check needed, we already trust the token endpoint's TLS
+// connection) purely to get a human-readable account label and a stable id
+// so re-connecting the same login updates it instead of duplicating it.
+function decodeIdToken(idToken: string | undefined): { sub?: string; email?: string } {
+  if (!idToken) return {};
+  try {
+    const payload = JSON.parse(
+      Buffer.from(idToken.split(".")[1], "base64url").toString("utf-8")
+    );
+    return { sub: payload.sub, email: payload.email };
+  } catch {
+    return {};
+  }
+}
 
 function ensureDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -123,22 +140,20 @@ export async function exchangeCodeForToken(
   }
 
   const tok = await res.json();
-  fs.writeFileSync(
-    TOKEN_PATH,
-    JSON.stringify(
-      {
-        accessToken: tok.access_token,
-        refreshToken: tok.refresh_token || undefined,
-        expiresAt: tok.expires_in
-          ? Date.now() + tok.expires_in * 1000
-          : Date.now() + 24 * 60 * 60 * 1000,
-        clientId: pending.clientId,
-        scope: tok.scope,
-        tokenType: tok.token_type,
-      },
-      null,
-      2
-    )
+  const { sub, email } = decodeIdToken(tok.id_token);
+  const id = sub || crypto.randomUUID();
+  upsertAccount(
+    {
+      id,
+      label: email || `Higgsfield account (${id.slice(0, 6)})`,
+      accessToken: tok.access_token,
+      refreshToken: tok.refresh_token || undefined,
+      expiresAt: tok.expires_in
+        ? Date.now() + tok.expires_in * 1000
+        : Date.now() + 24 * 60 * 60 * 1000,
+      clientId: pending.clientId,
+    },
+    true
   );
 
   // clean up the pending state

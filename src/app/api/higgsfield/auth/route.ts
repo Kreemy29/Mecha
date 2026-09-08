@@ -7,9 +7,9 @@ export async function GET() {
   return NextResponse.json({ authUrl });
 }
 
-// POST: save a token (manually pasted or received from OAuth callback)
+// POST: save a manually pasted token as a new connected account
 export async function POST(request: NextRequest) {
-  const { accessToken, refreshToken } = await request.json();
+  const { accessToken, refreshToken, label } = await request.json();
 
   if (!accessToken) {
     return NextResponse.json(
@@ -18,6 +18,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  saveOAuthToken(accessToken, refreshToken);
+  saveOAuthToken(accessToken, refreshToken, label);
   return NextResponse.json({ ok: true, message: "Token saved" });
 }

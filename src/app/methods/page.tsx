@@ -33,6 +33,9 @@ interface DisplayGeneration {
 
 const fileUrl = (p: string) => `/api/files/${p.replace(/\\/g, "/")}`;
 
+// Kept precise down to the minute even past the hour/day mark — a wall of
+// same-hour generations all rounding to "15h ago" made the (correctly sorted)
+// list look shuffled since nothing distinguished consecutive rows.
 function timeAgo(unixSeconds: number | null): string {
   if (!unixSeconds) return "";
   const diffMs = Date.now() - unixSeconds * 1000;
@@ -40,8 +43,16 @@ function timeAgo(unixSeconds: number | null): string {
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  const remMins = mins % 60;
+  if (hours < 24) return `${hours}h ${remMins}m ago`;
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return `${days}d ${remHours}h ago`;
+}
+
+function exactTime(unixSeconds: number | null): string {
+  if (!unixSeconds) return "";
+  return new Date(unixSeconds * 1000).toLocaleString();
 }
 
 // Every field in a generation's params besides the prompt and its reference
@@ -52,9 +63,23 @@ function settingsOf(params: Record<string, unknown>): Record<string, unknown> {
 }
 
 type Scope = "all" | "saved";
+type MediaType = "video" | "image";
+
+interface HfAccount {
+  id: string;
+  label: string;
+}
 
 export default function MethodsPage() {
   const [scope, setScope] = useState<Scope>("all");
+  const [mediaType, setMediaType] = useState<MediaType>("video");
+
+  // Which connected Higgsfield account's history to browse — independent of
+  // which one is "active" for job submission (set in Settings). undefined
+  // means "whichever is active," which is also the only option when there's
+  // just one account connected.
+  const [accounts, setAccounts] = useState<HfAccount[]>([]);
+  const [accountId, setAccountId] = useState<string | undefined>(undefined);
 
   // Live Higgsfield browse (scope "all")
   const [items, setItems] = useState<DisplayGeneration[]>([]);
@@ -102,18 +127,21 @@ export default function MethodsPage() {
     return mapped;
   }, []);
 
-  const loadAll = useCallback(async (cursor?: string) => {
-    const url = cursor
-      ? `/api/higgsfield/generations?cursor=${encodeURIComponent(cursor)}`
-      : "/api/higgsfield/generations";
-    const res = await fetch(url);
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-    return data as {
-      items: Omit<DisplayGeneration, "saved">[];
-      nextCursor: string | null;
-    };
-  }, []);
+  const loadAll = useCallback(
+    async (type: MediaType, cursor?: string, forAccount?: string) => {
+      const params = new URLSearchParams({ type });
+      if (cursor) params.set("cursor", cursor);
+      if (forAccount) params.set("account", forAccount);
+      const res = await fetch(`/api/higgsfield/generations?${params}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      return data as {
+        items: Omit<DisplayGeneration, "saved">[];
+        nextCursor: string | null;
+      };
+    },
+    []
+  );
 
   // savedIds is used to badge the "all" list — keep it fresh whenever the
   // saved set could have changed.
@@ -127,19 +155,32 @@ export default function MethodsPage() {
     }
   }, [loadSaved]);
 
+  const loadAllForType = useCallback(
+    async (type: MediaType) => {
+      const saved = await refreshSavedIds();
+      const page = await loadAll(type, undefined, accountId);
+      const withSaved = page.items.map((g) => ({
+        ...g,
+        saved: new Set(saved.map((s) => s.id)).has(g.id),
+      }));
+      setItems(withSaved);
+      setNextCursor(page.nextCursor);
+      setSelected(withSaved[0] || null);
+    },
+    [loadAll, refreshSavedIds, accountId]
+  );
+
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        const saved = await refreshSavedIds();
-        const page = await loadAll();
-        const withSaved = page.items.map((g) => ({
-          ...g,
-          saved: new Set(saved.map((s) => s.id)).has(g.id),
-        }));
-        setItems(withSaved);
-        setNextCursor(page.nextCursor);
-        setSelected(withSaved[0] || null);
+        const res = await fetch("/api/higgsfield/accounts");
+        const data = await res.json();
+        if (!data.error) {
+          setAccounts(data.accounts || []);
+          setAccountId(data.activeAccountId || undefined);
+        }
+        await loadAllForType(mediaType);
       } catch (err: unknown) {
         toast.error(err instanceof Error ? err.message : "Failed to load generations");
       } finally {
@@ -149,6 +190,27 @@ export default function MethodsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const switchAccount = async (next: string) => {
+    setAccountId(next);
+    setSelected(null);
+    setLoading(true);
+    try {
+      const saved = await refreshSavedIds();
+      const page = await loadAll(mediaType, undefined, next);
+      const withSaved = page.items.map((g) => ({
+        ...g,
+        saved: new Set(saved.map((s) => s.id)).has(g.id),
+      }));
+      setItems(withSaved);
+      setNextCursor(page.nextCursor);
+      setSelected(withSaved[0] || null);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to switch account");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const switchScope = async (next: Scope) => {
     setScope(next);
     setSelected(null);
@@ -156,8 +218,9 @@ export default function MethodsPage() {
       setLoading(true);
       try {
         const saved = await refreshSavedIds();
-        setSavedItems(saved);
-        setSelected(saved[0] || null);
+        const filtered = saved.filter((s) => s.type === mediaType);
+        setSavedItems(filtered);
+        setSelected(filtered[0] || null);
       } catch (err: unknown) {
         toast.error(err instanceof Error ? err.message : "Failed to load saved");
       } finally {
@@ -168,11 +231,31 @@ export default function MethodsPage() {
     }
   };
 
+  const switchMediaType = async (next: MediaType) => {
+    setMediaType(next);
+    setSelected(null);
+    setLoading(true);
+    try {
+      if (scope === "saved") {
+        const saved = await refreshSavedIds();
+        const filtered = saved.filter((s) => s.type === next);
+        setSavedItems(filtered);
+        setSelected(filtered[0] || null);
+      } else {
+        await loadAllForType(next);
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to switch");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const loadMore = async () => {
     if (!nextCursor) return;
     setLoadingMore(true);
     try {
-      const page = await loadAll(nextCursor);
+      const page = await loadAll(mediaType, nextCursor, accountId);
       const withSaved = page.items.map((g) => ({ ...g, saved: savedIds.has(g.id) }));
       setItems((prev) => [...prev, ...withSaved]);
       setNextCursor(page.nextCursor);
@@ -188,18 +271,11 @@ export default function MethodsPage() {
     try {
       if (scope === "saved") {
         const saved = await refreshSavedIds();
-        setSavedItems(saved);
-        setSelected(saved[0] || null);
+        const filtered = saved.filter((s) => s.type === mediaType);
+        setSavedItems(filtered);
+        setSelected(filtered[0] || null);
       } else {
-        const saved = await refreshSavedIds();
-        const page = await loadAll();
-        const withSaved = page.items.map((g) => ({
-          ...g,
-          saved: new Set(saved.map((s) => s.id)).has(g.id),
-        }));
-        setItems(withSaved);
-        setNextCursor(page.nextCursor);
-        setSelected(withSaved[0] || null);
+        await loadAllForType(mediaType);
       }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to refresh");
@@ -240,7 +316,7 @@ export default function MethodsPage() {
       setItems((prev) => prev.map((i) => (i.id === g.id ? { ...i, saved: !g.saved } : i)));
       setSelected((prev) => (prev && prev.id === g.id ? { ...prev, saved: !g.saved } : prev));
       if (scope === "saved") {
-        const saved = await loadSaved();
+        const saved = (await loadSaved()).filter((s) => s.type === mediaType);
         setSavedItems(saved);
         if (g.saved) setSelected(saved[0] || null);
       }
@@ -263,6 +339,20 @@ export default function MethodsPage() {
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
         </div>
+
+        {accounts.length > 1 && (
+          <select
+            value={accountId || ""}
+            onChange={(e) => switchAccount(e.target.value)}
+            className="w-full glass rounded-xl px-3 py-1.5 text-xs mb-2 bg-transparent"
+          >
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id} className="bg-background">
+                {a.label}
+              </option>
+            ))}
+          </select>
+        )}
 
         <div className="glass rounded-xl p-1 flex gap-1 mb-2">
           <button
@@ -289,6 +379,31 @@ export default function MethodsPage() {
           </button>
         </div>
 
+        <div className="glass rounded-xl p-1 flex gap-1 mb-2">
+          <button
+            onClick={() => switchMediaType("video")}
+            className={cn(
+              "flex-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+              mediaType === "video"
+                ? "bg-white/10 text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Videos
+          </button>
+          <button
+            onClick={() => switchMediaType("image")}
+            className={cn(
+              "flex-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+              mediaType === "image"
+                ? "bg-white/10 text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Photos
+          </button>
+        </div>
+
         {loading ? (
           Array.from({ length: 8 }).map((_, i) => (
             <Skeleton key={i} className="h-16 rounded-xl" />
@@ -311,7 +426,24 @@ export default function MethodsPage() {
                 )}
               >
                 <div className="h-12 w-12 shrink-0 rounded-lg overflow-hidden bg-white/5 relative">
-                  {g.thumbnailUrl ? (
+                  {/* Higgsfield's own thumbnailUrl for a video generation is
+                      just the first reference image echoed back, not an
+                      actual frame of the output — every item in a batch made
+                      from similar references looked identical. Render the
+                      real output instead: the video's own first frame, or
+                      the image itself. */}
+                  {g.type === "video" && g.outputUrl ? (
+                    <video
+                      src={`${g.outputUrl}#t=0.5`}
+                      preload="metadata"
+                      muted
+                      playsInline
+                      className="h-full w-full object-cover"
+                    />
+                  ) : g.outputUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={g.outputUrl} alt="" className="h-full w-full object-cover" />
+                  ) : g.thumbnailUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={g.thumbnailUrl}
@@ -342,7 +474,9 @@ export default function MethodsPage() {
                   <p className="text-[11px] text-muted-foreground truncate">
                     {g.prompt || g.type}
                   </p>
-                  <p className="text-[10px] text-muted-foreground">{timeAgo(g.createdAt)}</p>
+                  <p className="text-[10px] text-muted-foreground" title={exactTime(g.createdAt)}>
+                    {timeAgo(g.createdAt)}
+                  </p>
                 </div>
               </button>
             ))}
@@ -382,7 +516,12 @@ export default function MethodsPage() {
               >
                 {selected.status}
               </Badge>
-              <span className="text-xs text-muted-foreground">{timeAgo(selected.createdAt)}</span>
+              <span
+                className="text-xs text-muted-foreground"
+                title={exactTime(selected.createdAt)}
+              >
+                {timeAgo(selected.createdAt)}
+              </span>
               <div className="flex-1" />
               <Button
                 variant={selected.saved ? "outline" : "default"}

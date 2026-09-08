@@ -5,53 +5,39 @@ import path from "path";
 import crypto from "crypto";
 import { readMediaBytes } from "../local-files";
 import { rawDb } from "../db";
+import {
+  type HiggsfieldAccount,
+  getAccount,
+  getActiveAccountId,
+  updateAccountTokens,
+  upsertAccount,
+  listAccounts as listAccountRecords,
+} from "./higgsfield-accounts";
 
 const MCP_URL = process.env.HIGGSFIELD_MCP_URL || "https://mcp.higgsfield.ai";
 const TOKEN_ENDPOINT = `${MCP_URL}/oauth2/token`;
-const TOKEN_PATH = path.resolve("./data/higgsfield-token.json");
 // Public client registered during the PKCE flow (token_endpoint_auth_method: none).
 const CLIENT_ID = process.env.HIGGSFIELD_CLIENT_ID || "p5Y4QJiKYywp7Mwh";
 // Refresh when within this window of expiry.
 const REFRESH_SKEW_MS = 5 * 60 * 1000;
 
-interface OAuthTokens {
-  accessToken: string;
-  refreshToken?: string;
-  expiresAt?: number;
-  clientId?: string;
-}
-
-// ── Token persistence ──
-
-function loadTokens(): OAuthTokens | null {
-  try {
-    if (fs.existsSync(TOKEN_PATH)) {
-      return JSON.parse(fs.readFileSync(TOKEN_PATH, "utf-8"));
-    }
-  } catch {
-    // corrupt file
-  }
-  return null;
-}
-
-function saveTokens(tokens: OAuthTokens): void {
-  const dir = path.dirname(TOKEN_PATH);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens, null, 2));
-}
-
 // ── Token refresh (refresh_token grant) ──
+// Accounts are looked up by id from the accounts store (higgsfield-accounts.ts)
+// rather than a single flat file, so more than one separate Higgsfield login
+// can be connected — every function below defaults to whichever account is
+// "active" when no accountId is given, so existing callers (job submission,
+// character sync, etc.) don't need to know accounts exist.
 
-async function refreshAccessToken(tokens: OAuthTokens): Promise<OAuthTokens> {
-  if (!tokens.refreshToken) {
+async function refreshAccessToken(account: HiggsfieldAccount): Promise<HiggsfieldAccount> {
+  if (!account.refreshToken) {
     throw new Error("Token expired and no refresh_token available — re-run auth");
   }
-  const clientId = tokens.clientId || CLIENT_ID;
-  console.log("[Higgsfield] Refreshing access token...");
+  const clientId = account.clientId || CLIENT_ID;
+  console.log(`[Higgsfield] Refreshing access token (${account.label})...`);
 
   const body = new URLSearchParams({
     grant_type: "refresh_token",
-    refresh_token: tokens.refreshToken,
+    refresh_token: account.refreshToken,
     client_id: clientId,
     resource: MCP_URL,
   });
@@ -67,72 +53,83 @@ async function refreshAccessToken(tokens: OAuthTokens): Promise<OAuthTokens> {
   }
 
   const t = await res.json();
-  const refreshed: OAuthTokens = {
+  const refreshed: HiggsfieldAccount = {
+    ...account,
     accessToken: t.access_token,
-    refreshToken: t.refresh_token || tokens.refreshToken,
+    refreshToken: t.refresh_token || account.refreshToken,
     expiresAt: t.expires_in
       ? Date.now() + t.expires_in * 1000
       : Date.now() + 24 * 60 * 60 * 1000,
-    clientId,
   };
-  saveTokens(refreshed);
-  console.log("[Higgsfield] Token refreshed");
+  updateAccountTokens(account.id, {
+    accessToken: refreshed.accessToken,
+    refreshToken: refreshed.refreshToken,
+    expiresAt: refreshed.expiresAt,
+  });
+  console.log(`[Higgsfield] Token refreshed (${account.label})`);
   return refreshed;
 }
 
-async function getValidAccessToken(): Promise<string | null> {
-  let tokens = loadTokens();
-
-  if (tokens?.accessToken) {
-    const expired =
-      tokens.expiresAt !== undefined &&
-      Date.now() > tokens.expiresAt - REFRESH_SKEW_MS;
-    if (expired) {
-      try {
-        tokens = await refreshAccessToken(tokens);
-      } catch (err) {
-        // The web process and the worker process share this token file but
-        // not memory. Higgsfield's refresh_token is single-use and rotates,
-        // so when both see the token as expired around the same time, only
-        // the first refresh succeeds — the second's refresh_token is already
-        // consumed and gets rejected. Re-read the file: if the other process
-        // won the race, use what it wrote instead of going unauthenticated.
-        const latest = loadTokens();
-        if (latest?.accessToken && latest.refreshToken !== tokens.refreshToken) {
-          return latest.accessToken;
-        }
-        console.error("[Higgsfield]", err);
-        return null;
-      }
-    }
-    return tokens.accessToken;
-  }
-
-  // Fallback: manually pasted env token
-  return process.env.HIGGSFIELD_OAUTH_TOKEN || null;
+function resolveAccountId(accountId?: string): string | null {
+  return accountId || getActiveAccountId();
 }
 
-// ── MCP Client singleton ──
+async function getValidAccessToken(accountId?: string): Promise<string | null> {
+  const id = resolveAccountId(accountId);
+  if (!id) return process.env.HIGGSFIELD_OAUTH_TOKEN || null;
 
-let mcpClient: Client | null = null;
-let mcpTransport: StreamableHTTPClientTransport | null = null;
-let connectedWithToken: string | null = null;
+  let account = getAccount(id);
+  if (!account) return process.env.HIGGSFIELD_OAUTH_TOKEN || null;
 
-export async function getHiggsFieldClient(): Promise<Client> {
-  const accessToken = await getValidAccessToken();
+  const expired =
+    account.expiresAt !== undefined && Date.now() > account.expiresAt - REFRESH_SKEW_MS;
+  if (expired) {
+    try {
+      account = await refreshAccessToken(account);
+    } catch (err) {
+      // The web process and the worker process both read/write the accounts
+      // file but not memory. Higgsfield's refresh_token is single-use and
+      // rotates, so when both see an account's token as expired around the
+      // same time, only the first refresh succeeds — the second's
+      // refresh_token is already consumed and gets rejected. Re-read the
+      // file: if the other process won the race, use what it wrote instead
+      // of going unauthenticated.
+      const latest = getAccount(id);
+      if (latest && latest.refreshToken !== account.refreshToken) {
+        return latest.accessToken;
+      }
+      console.error("[Higgsfield]", err);
+      return null;
+    }
+  }
+  return account.accessToken;
+}
+
+// ── MCP Client, one connection per account ──
+
+const clientsByAccount = new Map<
+  string,
+  { client: Client; transport: StreamableHTTPClientTransport; token: string | null }
+>();
+
+export async function getHiggsFieldClient(accountId?: string): Promise<Client> {
+  const id = resolveAccountId(accountId);
+  if (!id) {
+    throw new Error("No Higgsfield account connected — go to Settings to connect one.");
+  }
+  const accessToken = await getValidAccessToken(id);
 
   // Reuse the existing connection unless the token changed (e.g. after refresh).
-  if (mcpClient && connectedWithToken === accessToken) return mcpClient;
+  const existing = clientsByAccount.get(id);
+  if (existing && existing.token === accessToken) return existing.client;
 
-  // Token changed — tear down the stale connection.
-  if (mcpClient) {
+  if (existing) {
     try {
-      await mcpClient.close();
+      await existing.client.close();
     } catch {
       // ignore
     }
-    mcpClient = null;
-    mcpTransport = null;
+    clientsByAccount.delete(id);
   }
 
   const headers: Record<string, string> = {
@@ -147,20 +144,19 @@ export async function getHiggsFieldClient(): Promise<Client> {
   const client = new Client({ name: "mecha-ai", version: "1.0.0" });
   await client.connect(transport);
 
-  mcpClient = client;
-  mcpTransport = transport;
-  connectedWithToken = accessToken;
+  clientsByAccount.set(id, { client, transport, token: accessToken });
 
-  console.log("[Higgsfield] Connected to MCP server");
+  console.log(`[Higgsfield] Connected to MCP server (${getAccount(id)?.label || id})`);
   return client;
 }
 
-export function disconnectHiggsField(): void {
-  if (mcpClient) {
-    mcpClient.close();
-    mcpClient = null;
-    mcpTransport = null;
-    connectedWithToken = null;
+export function disconnectHiggsField(accountId?: string): void {
+  const id = resolveAccountId(accountId);
+  if (!id) return;
+  const existing = clientsByAccount.get(id);
+  if (existing) {
+    existing.client.close();
+    clientsByAccount.delete(id);
   }
 }
 
@@ -172,8 +168,8 @@ export interface McpTool {
   inputSchema?: Record<string, unknown>;
 }
 
-export async function listTools(): Promise<McpTool[]> {
-  const client = await getHiggsFieldClient();
+export async function listTools(accountId?: string): Promise<McpTool[]> {
+  const client = await getHiggsFieldClient(accountId);
   const result = await client.listTools();
   return (result.tools || []).map((t) => ({
     name: t.name,
@@ -184,9 +180,10 @@ export async function listTools(): Promise<McpTool[]> {
 
 export async function callTool(
   name: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  accountId?: string
 ): Promise<unknown> {
-  const client = await getHiggsFieldClient();
+  const client = await getHiggsFieldClient(accountId);
   const result = await client.callTool({ name, arguments: args });
   return result;
 }
@@ -904,13 +901,20 @@ function normalizeGeneration(raw: Record<string, unknown>): Generation | null {
   };
 }
 
-// Browse past generations (image/video) across the whole Higgsfield account —
-// not just ones submitted through Mecha. Backs the "Methods" history page.
-export async function listGenerations(cursor?: string): Promise<GenerationPage> {
+// Browse past generations across the whole Higgsfield account — not just ones
+// submitted through Mecha. Backs the "Methods" history page. `type` maps
+// straight to show_generations' own filter (image/video/audio/3d) rather than
+// fetching everything and filtering client-side.
+export async function listGenerations(
+  cursor?: string,
+  type?: "image" | "video" | "audio" | "3d",
+  accountId?: string
+): Promise<GenerationPage> {
   const args: Record<string, unknown> = {};
   if (cursor) args.cursor = cursor;
+  if (type) args.type = type;
 
-  const result = (await callTool(SHOW_GENERATIONS_TOOL, args)) as ToolCallResult & {
+  const result = (await callTool(SHOW_GENERATIONS_TOOL, args, accountId)) as ToolCallResult & {
     structuredContent?: { items?: Record<string, unknown>[]; next_cursor?: string | number | null };
   };
   const items = result.structuredContent?.items || [];
@@ -1083,23 +1087,36 @@ export function getOAuthUrl(): string {
   return `${MCP_URL}/auth`;
 }
 
-export function saveOAuthToken(accessToken: string, refreshToken?: string): void {
-  saveTokens({
-    accessToken,
-    refreshToken,
-    expiresAt: Date.now() + 24 * 60 * 60 * 1000,
-    clientId: CLIENT_ID,
-  });
+// Manual paste path (Settings' "Advanced" box) — an opaque access token has
+// no id_token to derive an email/id from, so it gets a random id and a
+// generic label rather than being deduped against an existing account.
+export function saveOAuthToken(accessToken: string, refreshToken?: string, label?: string): void {
+  const id = crypto.randomUUID();
+  upsertAccount(
+    {
+      id,
+      label: label || `Manual token (${id.slice(0, 6)})`,
+      accessToken,
+      refreshToken,
+      expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+      clientId: CLIENT_ID,
+    },
+    true
+  );
 }
 
 export function getConnectionStatus(): {
   connected: boolean;
   hasToken: boolean;
+  accounts: { id: string; label: string }[];
+  activeAccountId: string | null;
 } {
-  const tokens = loadTokens();
+  const accounts = listAccountRecords();
   const envToken = process.env.HIGGSFIELD_OAUTH_TOKEN;
   return {
-    connected: mcpClient !== null,
-    hasToken: !!(tokens?.accessToken || envToken),
+    connected: clientsByAccount.size > 0,
+    hasToken: accounts.length > 0 || !!envToken,
+    accounts: accounts.map((a) => ({ id: a.id, label: a.label })),
+    activeAccountId: getActiveAccountId(),
   };
 }
