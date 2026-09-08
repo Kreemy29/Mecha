@@ -5,13 +5,12 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Image,
-  Video,
   Clapperboard,
   Users,
   Layers,
   Settings,
   Shirt,
-  LayoutGrid,
+  History,
   Megaphone,
 } from "lucide-react";
 import { InstagramIcon } from "@/components/icons";
@@ -22,9 +21,8 @@ const navItems = [
   { href: "/instagram", label: "Instagram", icon: InstagramIcon },
   { href: "/requests", label: "Requests", icon: Megaphone },
   { href: "/images", label: "Images", icon: Image },
-  { href: "/talking-head", label: "Talking Head", icon: Video },
   { href: "/motion-capture", label: "Motion Capture", icon: Clapperboard },
-  { href: "/formats", label: "Formats", icon: LayoutGrid },
+  { href: "/methods", label: "Methods", icon: History },
   { href: "/seedance", label: "Seedance", icon: Shirt },
   { href: "/characters", label: "Characters", icon: Users },
   { href: "/presets", label: "Presets", icon: Layers },

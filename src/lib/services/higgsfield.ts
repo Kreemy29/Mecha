@@ -2,7 +2,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { readMediaBytes } from "../local-files";
+import { rawDb } from "../db";
 
 const MCP_URL = process.env.HIGGSFIELD_MCP_URL || "https://mcp.higgsfield.ai";
 const TOKEN_ENDPOINT = `${MCP_URL}/oauth2/token`;
@@ -838,6 +840,240 @@ export async function getImageCost(
 
   const result = (await callTool(GENERATE_IMAGE_TOOL, { params })) as ToolCallResult;
   return parseToolJson(result);
+}
+
+// ── Generation history (browse past prompts/settings/output) ──
+
+const SHOW_GENERATIONS_TOOL = "show_generations";
+
+export interface GenerationMediaRef {
+  role: string;
+  url: string;
+  type?: string;
+}
+
+export interface Generation {
+  id: string;
+  type: string; // "image" | "video" | ...
+  status: string;
+  model: string;
+  prompt: string;
+  params: Record<string, unknown>;
+  medias: GenerationMediaRef[];
+  outputUrl: string | null;
+  thumbnailUrl: string | null;
+  createdAt: number | null; // unix seconds
+}
+
+export interface GenerationPage {
+  items: Generation[];
+  nextCursor: string | null;
+}
+
+interface RawGenerationMedia {
+  role?: string;
+  data?: { id?: string; type?: string; url?: string };
+}
+
+function normalizeGeneration(raw: Record<string, unknown>): Generation | null {
+  const id = String(raw.id || "");
+  if (!id) return null;
+  const params = (raw.params as Record<string, unknown>) || {};
+  const results = raw.results as
+    | { rawUrl?: string; minUrl?: string; thumbnailUrl?: string }
+    | undefined;
+  const rawMedias = (params.medias as RawGenerationMedia[]) || [];
+
+  return {
+    id,
+    type: String(raw.type || ""),
+    status: String(raw.status || ""),
+    model: String(raw.model || params.model || ""),
+    prompt: typeof params.prompt === "string" ? params.prompt : "",
+    params,
+    medias: rawMedias
+      .filter((m) => m?.data?.url)
+      .map((m) => ({
+        role: String(m.role || ""),
+        url: String(m.data!.url),
+        type: m.data?.type,
+      })),
+    outputUrl: results?.rawUrl || results?.minUrl || null,
+    thumbnailUrl: results?.thumbnailUrl || null,
+    createdAt: typeof raw.createdAt === "number" ? raw.createdAt : null,
+  };
+}
+
+// Browse past generations (image/video) across the whole Higgsfield account —
+// not just ones submitted through Mecha. Backs the "Methods" history page.
+export async function listGenerations(cursor?: string): Promise<GenerationPage> {
+  const args: Record<string, unknown> = {};
+  if (cursor) args.cursor = cursor;
+
+  const result = (await callTool(SHOW_GENERATIONS_TOOL, args)) as ToolCallResult & {
+    structuredContent?: { items?: Record<string, unknown>[]; next_cursor?: string | number | null };
+  };
+  const items = result.structuredContent?.items || [];
+  const nextCursor = result.structuredContent?.next_cursor;
+
+  return {
+    items: items.map(normalizeGeneration).filter((g): g is Generation => !!g),
+    nextCursor: nextCursor === null || nextCursor === undefined ? null : String(nextCursor),
+  };
+}
+
+// ── Saving specific generations permanently ──
+//
+// listGenerations() above only ever browses Higgsfield live — nothing is
+// kept. This is the "pick certain ones and keep them" counterpart: downloads
+// the output + thumbnail onto the local disk (so they survive Higgsfield URLs
+// expiring) and records the prompt/settings in a local table.
+
+const SAVED_GENERATIONS_DIR = path.resolve("./storage/higgsfield");
+
+let savedGenerationsTableEnsured = false;
+function ensureSavedGenerationsTable(): void {
+  if (savedGenerationsTableEnsured) return;
+  rawDb.exec(`
+    CREATE TABLE IF NOT EXISTS saved_generations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      higgsfield_id TEXT NOT NULL UNIQUE,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      model TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      params TEXT NOT NULL,
+      medias TEXT NOT NULL,
+      output_path TEXT,
+      thumbnail_path TEXT,
+      generated_at REAL,
+      saved_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+  savedGenerationsTableEnsured = true;
+}
+
+export interface SavedGeneration {
+  id: number;
+  higgsfieldId: string;
+  type: string;
+  status: string;
+  model: string;
+  prompt: string;
+  params: Record<string, unknown>;
+  medias: GenerationMediaRef[];
+  outputPath: string | null;
+  thumbnailPath: string | null;
+  generatedAt: number | null;
+  savedAt: string;
+}
+
+interface SavedGenerationRow {
+  id: number;
+  higgsfield_id: string;
+  type: string;
+  status: string;
+  model: string;
+  prompt: string;
+  params: string;
+  medias: string;
+  output_path: string | null;
+  thumbnail_path: string | null;
+  generated_at: number | null;
+  saved_at: string;
+}
+
+function rowToSaved(row: SavedGenerationRow): SavedGeneration {
+  return {
+    id: row.id,
+    higgsfieldId: row.higgsfield_id,
+    type: row.type,
+    status: row.status,
+    model: row.model,
+    prompt: row.prompt,
+    params: JSON.parse(row.params),
+    medias: JSON.parse(row.medias),
+    outputPath: row.output_path,
+    thumbnailPath: row.thumbnail_path,
+    generatedAt: row.generated_at,
+    savedAt: row.saved_at,
+  };
+}
+
+// Download a remote file (Higgsfield's CloudFront output/thumbnail) onto the
+// local disk. Keyed by URL hash so re-saving the same generation is a no-op.
+async function downloadToStorage(url: string): Promise<string> {
+  if (!fs.existsSync(SAVED_GENERATIONS_DIR)) {
+    fs.mkdirSync(SAVED_GENERATIONS_DIR, { recursive: true });
+  }
+  const ext = path.extname(new URL(url).pathname) || ".bin";
+  const key = crypto.createHash("sha1").update(url).digest("hex").slice(0, 24);
+  const abs = path.join(SAVED_GENERATIONS_DIR, `${key}${ext}`);
+  if (!fs.existsSync(abs)) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Download failed (${res.status}): ${url}`);
+    fs.writeFileSync(abs, Buffer.from(await res.arrayBuffer()));
+  }
+  return path.relative(process.cwd(), abs);
+}
+
+export function listSavedGenerations(): SavedGeneration[] {
+  ensureSavedGenerationsTable();
+  const rows = rawDb
+    .prepare("SELECT * FROM saved_generations ORDER BY generated_at DESC")
+    .all() as SavedGenerationRow[];
+  return rows.map(rowToSaved);
+}
+
+export function savedGenerationIds(): Set<string> {
+  ensureSavedGenerationsTable();
+  const rows = rawDb
+    .prepare("SELECT higgsfield_id FROM saved_generations")
+    .all() as Array<{ higgsfield_id: string }>;
+  return new Set(rows.map((r) => r.higgsfield_id));
+}
+
+// Persists one generation the caller already has in hand (from listGenerations)
+// so its prompt/settings survive independent of Higgsfield's own history and
+// its output/thumbnail survive independent of the CloudFront URL expiring.
+export async function saveGeneration(g: Generation): Promise<SavedGeneration> {
+  ensureSavedGenerationsTable();
+  const existing = rawDb
+    .prepare("SELECT * FROM saved_generations WHERE higgsfield_id = ?")
+    .get(g.id) as SavedGenerationRow | undefined;
+  if (existing) return rowToSaved(existing);
+
+  const outputPath = g.outputUrl ? await downloadToStorage(g.outputUrl) : null;
+  const thumbnailPath = g.thumbnailUrl ? await downloadToStorage(g.thumbnailUrl) : null;
+
+  rawDb
+    .prepare(
+      `INSERT INTO saved_generations
+        (higgsfield_id, type, status, model, prompt, params, medias, output_path, thumbnail_path, generated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      g.id,
+      g.type,
+      g.status,
+      g.model,
+      g.prompt,
+      JSON.stringify(g.params),
+      JSON.stringify(g.medias),
+      outputPath,
+      thumbnailPath,
+      g.createdAt
+    );
+
+  const row = rawDb
+    .prepare("SELECT * FROM saved_generations WHERE higgsfield_id = ?")
+    .get(g.id) as SavedGenerationRow;
+  return rowToSaved(row);
+}
+
+export function unsaveGeneration(higgsfieldId: string): void {
+  ensureSavedGenerationsTable();
+  rawDb.prepare("DELETE FROM saved_generations WHERE higgsfield_id = ?").run(higgsfieldId);
 }
 
 // ── OAuth helpers ──
