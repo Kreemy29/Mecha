@@ -356,6 +356,19 @@ export const formatAssignments = sqliteTable("format_assignments", {
     .default(sql`(datetime('now'))`),
 });
 
+// Discussion under one format — same shape/purpose as igRequestComments.
+export const formatComments = sqliteTable("format_comments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  formatId: integer("format_id")
+    .notNull()
+    .references(() => winningFormats.id),
+  author: text("author").notNull(),
+  body: text("body").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`(datetime('now'))`),
+});
+
 // Media items the operator chose to keep. Thumbnail is cached locally at save
 // time (IG CDN URLs expire); the video itself is only downloaded on demand
 // ("Recreate" → Seedance / Motion Capture, or explicit download).

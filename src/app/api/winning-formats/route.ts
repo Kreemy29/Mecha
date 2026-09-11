@@ -213,6 +213,7 @@ export async function DELETE(request: NextRequest) {
   const id = parseInt(request.nextUrl.searchParams.get("id") || "");
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
   db.delete(schema.formatAssignments).where(eq(schema.formatAssignments.formatId, id)).run();
+  db.delete(schema.formatComments).where(eq(schema.formatComments.formatId, id)).run();
   db.delete(schema.winningFormats).where(eq(schema.winningFormats.id, id)).run();
   return NextResponse.json({ ok: true });
 }

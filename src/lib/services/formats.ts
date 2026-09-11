@@ -25,6 +25,15 @@ export function ensureFormatTables(): void {
     );
     CREATE INDEX IF NOT EXISTS format_assignments_format
       ON format_assignments (format_id);
+    CREATE TABLE IF NOT EXISTS format_comments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      format_id INTEGER NOT NULL REFERENCES winning_formats(id),
+      author TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS format_comments_format
+      ON format_comments (format_id);
   `);
 
   // winning_formats predates the weekly board — add the two columns it needs

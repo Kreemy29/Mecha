@@ -17,8 +17,44 @@ import {
   Bookmark,
   ExternalLink,
   Clapperboard,
+  CheckCircle2,
+  MessageCircle,
+  Send,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+// ISO 8601 week number (Monday-start, week 1 contains the year's first
+// Thursday) — matches how people actually talk about "week 37" day to day,
+// rather than an arbitrary free-text label with no relation to the calendar.
+function isoWeekLabel(offsetDays = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - dayNum + 3);
+  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
+  const week =
+    1 +
+    Math.round(
+      ((date.getTime() - firstThursday.getTime()) / 86400000 -
+        3 +
+        ((firstThursday.getUTCDay() + 6) % 7)) /
+        7
+    );
+  return `Week ${week}`;
+}
+
+// SQLite's datetime('now') has no timezone marker; without the Z the browser
+// reads it as local time and everything looks hours old.
+function timeAgo(iso: string): string {
+  const then = Date.parse(iso.includes("Z") ? iso : `${iso}Z`);
+  if (Number.isNaN(then)) return "";
+  const s = Math.floor((Date.now() - then) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
 
 interface FormatWeek {
   id: number;
@@ -63,6 +99,14 @@ interface IgMediaRow {
   videoPath: string | null;
 }
 
+interface FormatComment {
+  id: number;
+  formatId: number;
+  author: string;
+  body: string;
+  createdAt: string;
+}
+
 const fileUrl = (p: string) => `/api/files/${p.replace(/\\/g, "/")}`;
 
 type AddMode = "existing" | "link" | "upload";
@@ -89,6 +133,11 @@ export default function FormatsPage() {
   const [assignFor, setAssignFor] = useState<number | null>(null);
   const [assignModel, setAssignModel] = useState("");
   const [assignQuota, setAssignQuota] = useState("1");
+
+  const [openComments, setOpenComments] = useState<number | null>(null);
+  const [comments, setComments] = useState<Record<number, FormatComment[]>>({});
+  const [commentDraft, setCommentDraft] = useState("");
+  const [postingComment, setPostingComment] = useState(false);
 
   const loadWeeks = useCallback(async () => {
     const res = await fetch("/api/format-weeks");
@@ -145,13 +194,14 @@ export default function FormatsPage() {
     }
   };
 
-  const createWeek = async () => {
-    if (!newWeekLabel.trim()) return;
+  const createWeek = async (label?: string) => {
+    const clean = (label ?? newWeekLabel).trim();
+    if (!clean) return;
     try {
       const res = await fetch("/api/format-weeks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: newWeekLabel.trim() }),
+        body: JSON.stringify({ label: clean }),
       });
       const row = await res.json();
       if (row.error) throw new Error(row.error);
@@ -318,20 +368,79 @@ export default function FormatsPage() {
     );
   };
 
+  const toggleComments = async (formatId: number) => {
+    if (openComments === formatId) {
+      setOpenComments(null);
+      return;
+    }
+    setOpenComments(formatId);
+    if (!comments[formatId]) {
+      try {
+        const res = await fetch(`/api/format-comments?formatId=${formatId}`);
+        const rows = await res.json();
+        setComments((prev) => ({ ...prev, [formatId]: Array.isArray(rows) ? rows : [] }));
+      } catch {
+        setComments((prev) => ({ ...prev, [formatId]: [] }));
+      }
+    }
+  };
+
+  const postComment = async (formatId: number) => {
+    const body = commentDraft.trim();
+    if (!body) return;
+    setPostingComment(true);
+    try {
+      const res = await fetch("/api/format-comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ formatId, body }),
+      });
+      const row = await res.json();
+      if (row.error) throw new Error(row.error);
+      setComments((prev) => ({
+        ...prev,
+        [formatId]: [...(prev[formatId] || []), row],
+      }));
+      setCommentDraft("");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Comment failed");
+    } finally {
+      setPostingComment(false);
+    }
+  };
+
   return (
     <div className="flex h-screen pt-20">
       {/* Weeks */}
       <div className="w-56 shrink-0 border-r border-white/10 overflow-y-auto p-3 space-y-2">
         <h2 className="text-sm font-semibold px-1 pb-2">Formats</h2>
+        <div className="grid grid-cols-2 gap-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => createWeek(isoWeekLabel(0))}
+            className="h-8 px-1 text-[11px] border-white/10"
+          >
+            + {isoWeekLabel(0)}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => createWeek(isoWeekLabel(7))}
+            className="h-8 px-1 text-[11px] border-white/10"
+          >
+            + {isoWeekLabel(7)}
+          </Button>
+        </div>
         <div className="flex gap-1.5">
           <Input
             value={newWeekLabel}
             onChange={(e) => setNewWeekLabel(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && createWeek()}
-            placeholder="Week 4"
+            placeholder="Custom label..."
             className="glass border-white/10 h-8 text-xs"
           />
-          <Button size="sm" onClick={createWeek} className="h-8 px-2 shrink-0">
+          <Button size="sm" onClick={() => createWeek()} className="h-8 px-2 shrink-0">
             <Plus className="h-3.5 w-3.5" />
           </Button>
         </div>
@@ -412,20 +521,50 @@ export default function FormatsPage() {
                 </div>
 
                 {addMode === "existing" && (
-                  <select
-                    value={addMediaId}
-                    onChange={(e) => setAddMediaId(e.target.value)}
-                    className="w-full glass rounded-xl px-3 py-1.5 text-xs bg-transparent"
-                  >
-                    <option value="" className="bg-background">
-                      Pick a saved clip...
-                    </option>
-                    {savedMedia.map((m) => (
-                      <option key={m.id} value={m.id} className="bg-background">
-                        {m.caption?.slice(0, 60) || m.shortcode}
-                      </option>
-                    ))}
-                  </select>
+                  savedMedia.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No saved clips with a downloaded video yet — save one from the
+                      Instagram page first.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-5 sm:grid-cols-6 gap-2 max-h-56 overflow-y-auto p-1">
+                      {savedMedia.map((m) => {
+                        const isSelected = addMediaId === String(m.id);
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => setAddMediaId(String(m.id))}
+                            title={m.caption || m.shortcode}
+                            className={cn(
+                              "relative aspect-[9/16] rounded-lg overflow-hidden border-2 bg-white/5 transition-colors",
+                              isSelected
+                                ? "border-[oklch(0.75_0.15_270)]"
+                                : "border-transparent hover:border-white/20"
+                            )}
+                          >
+                            {m.thumbPath ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={fileUrl(m.thumbPath)}
+                                alt=""
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <Clapperboard className="h-4 w-4 text-muted-foreground" />
+                              </div>
+                            )}
+                            {isSelected && (
+                              <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+                                <CheckCircle2 className="h-5 w-5 text-[oklch(0.85_0.12_270)]" />
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )
                 )}
 
                 {addMode === "link" && (
@@ -633,6 +772,48 @@ export default function FormatsPage() {
                           >
                             <Bookmark className="h-3 w-3" /> Assign a model
                           </button>
+                        )}
+                      </div>
+
+                      {/* Comments */}
+                      <div className="border-t border-white/5 pt-2 space-y-1.5">
+                        <button
+                          onClick={() => toggleComments(f.id)}
+                          className="text-[10px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+                        >
+                          <MessageCircle className="h-3 w-3" />
+                          {comments[f.id]?.length
+                            ? `${comments[f.id].length} ${comments[f.id].length === 1 ? "comment" : "comments"}`
+                            : "Comment"}
+                        </button>
+                        {openComments === f.id && (
+                          <div className="space-y-1.5">
+                            {(comments[f.id] || []).map((c) => (
+                              <div key={c.id} className="text-[10px] p-1.5 rounded-lg bg-white/5">
+                                <p className="text-muted-foreground">
+                                  <strong className="text-foreground">{c.author}</strong> ·{" "}
+                                  {timeAgo(c.createdAt)}
+                                </p>
+                                <p className="whitespace-pre-wrap">{c.body}</p>
+                              </div>
+                            ))}
+                            <div className="flex gap-1">
+                              <input
+                                value={commentDraft}
+                                onChange={(e) => setCommentDraft(e.target.value)}
+                                onKeyDown={(e) => e.key === "Enter" && postComment(f.id)}
+                                placeholder="Add a comment..."
+                                className="glass border-white/10 rounded-lg px-2 py-1 text-[10px] flex-1 min-w-0 bg-transparent"
+                              />
+                              <button
+                                onClick={() => postComment(f.id)}
+                                disabled={postingComment}
+                                className="text-[oklch(0.85_0.12_270)] hover:opacity-80 disabled:opacity-40"
+                              >
+                                <Send className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
                         )}
                       </div>
                     </div>
