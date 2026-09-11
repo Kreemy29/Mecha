@@ -20,28 +20,53 @@ import {
   CheckCircle2,
   MessageCircle,
   Send,
+  CalendarDays,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+
+const toIsoDate = (d: Date) => d.toISOString().slice(0, 10);
 
 // ISO 8601 week number (Monday-start, week 1 contains the year's first
-// Thursday) — matches how people actually talk about "week 37" day to day,
-// rather than an arbitrary free-text label with no relation to the calendar.
-function isoWeekLabel(offsetDays = 0): string {
+// Thursday) — matches how people actually talk about "week 37" day to day.
+// Used only to prefill the new-week dialog with a sensible name + Mon-Sun
+// range; the operator picks the real dates from the calendar inputs.
+function isoWeekDefaults(offsetDays = 0): { label: string; from: string; to: string } {
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);
   const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  const dayNum = (date.getUTCDay() + 6) % 7;
-  date.setUTCDate(date.getUTCDate() - dayNum + 3);
-  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
+  const dayNum = (date.getUTCDay() + 6) % 7; // 0 = Monday
+  const thursday = new Date(date);
+  thursday.setUTCDate(date.getUTCDate() - dayNum + 3);
+  const firstThursday = new Date(Date.UTC(thursday.getUTCFullYear(), 0, 4));
   const week =
     1 +
     Math.round(
-      ((date.getTime() - firstThursday.getTime()) / 86400000 -
+      ((thursday.getTime() - firstThursday.getTime()) / 86400000 -
         3 +
         ((firstThursday.getUTCDay() + 6) % 7)) /
         7
     );
-  return `Week ${week}`;
+  const monday = new Date(date);
+  monday.setUTCDate(date.getUTCDate() - dayNum);
+  const sunday = new Date(monday);
+  sunday.setUTCDate(monday.getUTCDate() + 6);
+  return { label: `Week ${week}`, from: toIsoDate(monday), to: toIsoDate(sunday) };
+}
+
+function formatDateRange(from: string | null, to: string | null): string {
+  if (!from) return "";
+  const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+  const fromLabel = new Date(`${from}T00:00:00`).toLocaleDateString(undefined, opts);
+  if (!to || to === from) return fromLabel;
+  const toLabel = new Date(`${to}T00:00:00`).toLocaleDateString(undefined, opts);
+  return `${fromLabel} – ${toLabel}`;
 }
 
 // SQLite's datetime('now') has no timezone marker; without the Z the browser
@@ -59,6 +84,8 @@ function timeAgo(iso: string): string {
 interface FormatWeek {
   id: number;
   label: string;
+  startDate: string | null;
+  endDate: string | null;
   createdAt: string;
 }
 
@@ -116,7 +143,10 @@ export default function FormatsPage() {
   const [selectedWeekId, setSelectedWeekId] = useState<number | null>(null);
   const [formats, setFormats] = useState<FormatRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newWeekLabel, setNewWeekLabel] = useState("");
+  const [weekDialogOpen, setWeekDialogOpen] = useState(false);
+  const [weekName, setWeekName] = useState("");
+  const [weekFrom, setWeekFrom] = useState("");
+  const [weekTo, setWeekTo] = useState("");
 
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [savedGens, setSavedGens] = useState<SavedGeneration[]>([]);
@@ -194,19 +224,30 @@ export default function FormatsPage() {
     }
   };
 
-  const createWeek = async (label?: string) => {
-    const clean = (label ?? newWeekLabel).trim();
-    if (!clean) return;
+  const openWeekDialog = () => {
+    const d = isoWeekDefaults(0);
+    setWeekName(d.label);
+    setWeekFrom(d.from);
+    setWeekTo(d.to);
+    setWeekDialogOpen(true);
+  };
+
+  const createWeek = async () => {
+    const clean = weekName.trim();
+    if (!clean) {
+      toast.error("Name this week");
+      return;
+    }
     try {
       const res = await fetch("/api/format-weeks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: clean }),
+        body: JSON.stringify({ label: clean, startDate: weekFrom || null, endDate: weekTo || null }),
       });
       const row = await res.json();
       if (row.error) throw new Error(row.error);
       setWeeks((prev) => [row, ...prev]);
-      setNewWeekLabel("");
+      setWeekDialogOpen(false);
       selectWeek(row.id);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Could not create week");
@@ -414,36 +455,14 @@ export default function FormatsPage() {
       {/* Weeks */}
       <div className="w-56 shrink-0 border-r border-white/10 overflow-y-auto p-3 space-y-2">
         <h2 className="text-sm font-semibold px-1 pb-2">Formats</h2>
-        <div className="grid grid-cols-2 gap-1.5">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => createWeek(isoWeekLabel(0))}
-            className="h-8 px-1 text-[11px] border-white/10"
-          >
-            + {isoWeekLabel(0)}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => createWeek(isoWeekLabel(7))}
-            className="h-8 px-1 text-[11px] border-white/10"
-          >
-            + {isoWeekLabel(7)}
-          </Button>
-        </div>
-        <div className="flex gap-1.5">
-          <Input
-            value={newWeekLabel}
-            onChange={(e) => setNewWeekLabel(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && createWeek()}
-            placeholder="Custom label..."
-            className="glass border-white/10 h-8 text-xs"
-          />
-          <Button size="sm" onClick={() => createWeek()} className="h-8 px-2 shrink-0">
-            <Plus className="h-3.5 w-3.5" />
-          </Button>
-        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={openWeekDialog}
+          className="w-full h-8 text-xs border-white/10 gap-1.5"
+        >
+          <CalendarDays className="h-3.5 w-3.5" /> New week
+        </Button>
         <div className="space-y-1 pt-1">
           {weeks.map((w) => (
             <div
@@ -457,9 +476,14 @@ export default function FormatsPage() {
             >
               <button
                 onClick={() => selectWeek(w.id)}
-                className="flex-1 text-left px-3 py-1.5 text-xs font-medium"
+                className="flex-1 text-left px-3 py-1.5"
               >
-                {w.label}
+                <div className="text-xs font-medium">{w.label}</div>
+                {w.startDate && (
+                  <div className="text-[10px] text-muted-foreground">
+                    {formatDateRange(w.startDate, w.endDate)}
+                  </div>
+                )}
               </button>
               <button
                 onClick={() => removeWeek(w.id)}
@@ -471,6 +495,54 @@ export default function FormatsPage() {
           ))}
         </div>
       </div>
+
+      <Dialog open={weekDialogOpen} onOpenChange={setWeekDialogOpen}>
+        <DialogContent className="glass-strong border-white/10 sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>New week</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-2">
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">Name</label>
+              <Input
+                value={weekName}
+                onChange={(e) => setWeekName(e.target.value)}
+                placeholder="Week 37"
+                className="glass border-white/10 h-9 text-sm"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">From</label>
+                <input
+                  type="date"
+                  value={weekFrom}
+                  onChange={(e) => setWeekFrom(e.target.value)}
+                  className="w-full glass border border-white/10 rounded-md h-9 px-2 text-sm bg-transparent"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">To</label>
+                <input
+                  type="date"
+                  value={weekTo}
+                  onChange={(e) => setWeekTo(e.target.value)}
+                  min={weekFrom || undefined}
+                  className="w-full glass border border-white/10 rounded-md h-9 px-2 text-sm bg-transparent"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={createWeek}
+              className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white"
+            >
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Formats for the selected week */}
       <div className="flex-1 overflow-y-auto p-6 space-y-4">

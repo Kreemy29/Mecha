@@ -331,12 +331,17 @@ export const winningFormats = sqliteTable("winning_formats", {
     .default(sql`(datetime('now'))`),
 });
 
-// A content week ("Week 4") the operator plans formats under. Just a label —
-// deleting one only detaches its formats (see /api/format-weeks), never
+// A content week the operator plans formats under — a name plus the actual
+// date range it covers (picked from a calendar, not just a bare number).
+// Deleting one only detaches its formats (see /api/format-weeks), never
 // deletes the videos themselves.
 export const formatWeeks = sqliteTable("format_weeks", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   label: text("label").notNull(),
+  // "YYYY-MM-DD", both nullable since weeks created before date ranges
+  // existed have neither.
+  startDate: text("start_date"),
+  endDate: text("end_date"),
   createdAt: text("created_at")
     .notNull()
     .default(sql`(datetime('now'))`),

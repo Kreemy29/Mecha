@@ -16,12 +16,20 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     ensureFormatTables();
-    const { label } = await request.json();
+    const { label, startDate, endDate } = await request.json();
     const clean = String(label || "").trim();
     if (!clean) {
       return NextResponse.json({ error: "label is required" }, { status: 400 });
     }
-    const row = db.insert(schema.formatWeeks).values({ label: clean }).returning().get();
+    const row = db
+      .insert(schema.formatWeeks)
+      .values({
+        label: clean,
+        startDate: startDate || null,
+        endDate: endDate || null,
+      })
+      .returning()
+      .get();
     return NextResponse.json(row, { status: 201 });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

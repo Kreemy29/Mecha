@@ -51,5 +51,18 @@ export function ensureFormatTables(): void {
     rawDb.exec("ALTER TABLE winning_formats ADD COLUMN method_generation_id TEXT");
   }
 
+  // format_weeks predates picking an actual date range — add it if this is
+  // an existing database.
+  const weekColumns = rawDb
+    .prepare("PRAGMA table_info(format_weeks)")
+    .all() as Array<{ name: string }>;
+  const haveWeek = new Set(weekColumns.map((c) => c.name));
+  if (!haveWeek.has("start_date")) {
+    rawDb.exec("ALTER TABLE format_weeks ADD COLUMN start_date TEXT");
+  }
+  if (!haveWeek.has("end_date")) {
+    rawDb.exec("ALTER TABLE format_weeks ADD COLUMN end_date TEXT");
+  }
+
   tablesEnsured = true;
 }
