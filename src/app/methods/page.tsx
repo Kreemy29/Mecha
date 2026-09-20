@@ -14,9 +14,9 @@ interface GenerationMediaRef {
   type?: string;
 }
 
-// Normalized shape both the live Higgsfield browse and the locally-saved
-// subset render into, so the detail panel doesn't care which scope it came
-// from.
+// Normalized shape every service's live browse and locally-saved subset
+// render into, so the detail panel doesn't care which service or scope it
+// came from.
 interface DisplayGeneration {
   id: string;
   type: string;
@@ -64,6 +64,19 @@ function settingsOf(params: Record<string, unknown>): Record<string, unknown> {
 
 type Scope = "all" | "saved";
 type MediaType = "video" | "image";
+type Service = "higgsfield" | "yapper";
+
+const SERVICES: { id: Service; label: string }[] = [
+  { id: "higgsfield", label: "Higgsfield" },
+  { id: "yapper", label: "Yapper" },
+];
+
+// Each service's saved-generation record uses a different id field
+// (higgsfieldId / yapperId) — everything else about the shape lines up.
+const SAVED_ID_KEY: Record<Service, "higgsfieldId" | "yapperId"> = {
+  higgsfield: "higgsfieldId",
+  yapper: "yapperId",
+};
 
 interface HfAccount {
   id: string;
@@ -71,17 +84,18 @@ interface HfAccount {
 }
 
 export default function MethodsPage() {
+  const [service, setService] = useState<Service>("higgsfield");
   const [scope, setScope] = useState<Scope>("all");
   const [mediaType, setMediaType] = useState<MediaType>("video");
 
-  // Which connected Higgsfield account's history to browse — independent of
-  // which one is "active" for job submission (set in Settings). undefined
-  // means "whichever is active," which is also the only option when there's
-  // just one account connected.
+  // Which connected account's history to browse — independent of which one
+  // is "active" for job submission (set in Settings). undefined means
+  // "whichever is active," which is also the only option when there's just
+  // one account connected.
   const [accounts, setAccounts] = useState<HfAccount[]>([]);
   const [accountId, setAccountId] = useState<string | undefined>(undefined);
 
-  // Live Higgsfield browse (scope "all")
+  // Live browse (scope "all")
   const [items, setItems] = useState<DisplayGeneration[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -94,13 +108,18 @@ export default function MethodsPage() {
   const [selected, setSelected] = useState<DisplayGeneration | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const loadSaved = useCallback(async (): Promise<DisplayGeneration[]> => {
-    const res = await fetch("/api/higgsfield/generations/saved");
+  // Every fetcher below takes `svc` explicitly rather than closing over the
+  // `service` state — switchService calls these in the same tick as
+  // setService(next), before the state update (and any closure over it)
+  // would be visible, so an implicit "current service" would still hit the
+  // old service's endpoints.
+  const loadSaved = useCallback(async (svc: Service): Promise<DisplayGeneration[]> => {
+    const res = await fetch(`/api/${svc}/generations/saved`);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
+    const idKey = SAVED_ID_KEY[svc];
     const mapped: DisplayGeneration[] = data.items.map(
       (s: {
-        higgsfieldId: string;
         type: string;
         status: string;
         model: string;
@@ -110,8 +129,8 @@ export default function MethodsPage() {
         outputPath: string | null;
         thumbnailPath: string | null;
         generatedAt: number | null;
-      }) => ({
-        id: s.higgsfieldId,
+      } & Record<string, string>) => ({
+        id: s[idKey],
         type: s.type,
         status: s.status,
         model: s.model,
@@ -128,11 +147,11 @@ export default function MethodsPage() {
   }, []);
 
   const loadAll = useCallback(
-    async (type: MediaType, cursor?: string, forAccount?: string) => {
+    async (svc: Service, type: MediaType, cursor?: string, forAccount?: string) => {
       const params = new URLSearchParams({ type });
       if (cursor) params.set("cursor", cursor);
       if (forAccount) params.set("account", forAccount);
-      const res = await fetch(`/api/higgsfield/generations?${params}`);
+      const res = await fetch(`/api/${svc}/generations?${params}`);
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       return data as {
@@ -145,20 +164,23 @@ export default function MethodsPage() {
 
   // savedIds is used to badge the "all" list — keep it fresh whenever the
   // saved set could have changed.
-  const refreshSavedIds = useCallback(async () => {
-    try {
-      const saved = await loadSaved();
-      setSavedIds(new Set(saved.map((s) => s.id)));
-      return saved;
-    } catch {
-      return [];
-    }
-  }, [loadSaved]);
+  const refreshSavedIds = useCallback(
+    async (svc: Service) => {
+      try {
+        const saved = await loadSaved(svc);
+        setSavedIds(new Set(saved.map((s) => s.id)));
+        return saved;
+      } catch {
+        return [];
+      }
+    },
+    [loadSaved]
+  );
 
   const loadAllForType = useCallback(
-    async (type: MediaType) => {
-      const saved = await refreshSavedIds();
-      const page = await loadAll(type, undefined, accountId);
+    async (svc: Service, type: MediaType) => {
+      const saved = await refreshSavedIds(svc);
+      const page = await loadAll(svc, type, undefined, accountId);
       const withSaved = page.items.map((g) => ({
         ...g,
         saved: new Set(saved.map((s) => s.id)).has(g.id),
@@ -170,33 +192,68 @@ export default function MethodsPage() {
     [loadAll, refreshSavedIds, accountId]
   );
 
-  useEffect(() => {
-    (async () => {
+  // Load a service's connected accounts, then its history — shared by the
+  // initial mount and by switching the service tab.
+  const loadAccountsAndList = useCallback(
+    async (svc: Service, type: MediaType) => {
       setLoading(true);
       try {
-        const res = await fetch("/api/higgsfield/accounts");
+        const res = await fetch(`/api/${svc}/accounts`);
         const data = await res.json();
+        let forAccount: string | undefined;
         if (!data.error) {
           setAccounts(data.accounts || []);
-          setAccountId(data.activeAccountId || undefined);
+          forAccount = data.activeAccountId || undefined;
+          setAccountId(forAccount);
+        } else {
+          setAccounts([]);
+          setAccountId(undefined);
         }
-        await loadAllForType(mediaType);
+        const saved = await refreshSavedIds(svc);
+        const page = await loadAll(svc, type, undefined, forAccount);
+        const withSaved = page.items.map((g) => ({
+          ...g,
+          saved: new Set(saved.map((s) => s.id)).has(g.id),
+        }));
+        setItems(withSaved);
+        setNextCursor(page.nextCursor);
+        setSelected(withSaved[0] || null);
       } catch (err: unknown) {
+        // Otherwise a failed fetch (e.g. no account connected for this
+        // service yet) leaves the previous service's items on screen under
+        // the newly-selected tab.
+        setItems([]);
+        setNextCursor(null);
         toast.error(err instanceof Error ? err.message : "Failed to load generations");
       } finally {
         setLoading(false);
       }
-    })();
+    },
+    [loadAll, refreshSavedIds]
+  );
+
+  useEffect(() => {
+    loadAccountsAndList(service, mediaType);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const switchService = (next: Service) => {
+    if (next === service) return;
+    setService(next);
+    setScope("all");
+    setSelected(null);
+    setSavedItems([]);
+    setSavedIds(new Set());
+    loadAccountsAndList(next, mediaType);
+  };
 
   const switchAccount = async (next: string) => {
     setAccountId(next);
     setSelected(null);
     setLoading(true);
     try {
-      const saved = await refreshSavedIds();
-      const page = await loadAll(mediaType, undefined, next);
+      const saved = await refreshSavedIds(service);
+      const page = await loadAll(service, mediaType, undefined, next);
       const withSaved = page.items.map((g) => ({
         ...g,
         saved: new Set(saved.map((s) => s.id)).has(g.id),
@@ -217,7 +274,7 @@ export default function MethodsPage() {
     if (next === "saved") {
       setLoading(true);
       try {
-        const saved = await refreshSavedIds();
+        const saved = await refreshSavedIds(service);
         const filtered = saved.filter((s) => s.type === mediaType);
         setSavedItems(filtered);
         setSelected(filtered[0] || null);
@@ -237,12 +294,12 @@ export default function MethodsPage() {
     setLoading(true);
     try {
       if (scope === "saved") {
-        const saved = await refreshSavedIds();
+        const saved = await refreshSavedIds(service);
         const filtered = saved.filter((s) => s.type === next);
         setSavedItems(filtered);
         setSelected(filtered[0] || null);
       } else {
-        await loadAllForType(next);
+        await loadAllForType(service, next);
       }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to switch");
@@ -255,7 +312,7 @@ export default function MethodsPage() {
     if (!nextCursor) return;
     setLoadingMore(true);
     try {
-      const page = await loadAll(mediaType, nextCursor, accountId);
+      const page = await loadAll(service, mediaType, nextCursor, accountId);
       const withSaved = page.items.map((g) => ({ ...g, saved: savedIds.has(g.id) }));
       setItems((prev) => [...prev, ...withSaved]);
       setNextCursor(page.nextCursor);
@@ -270,12 +327,12 @@ export default function MethodsPage() {
     setLoading(true);
     try {
       if (scope === "saved") {
-        const saved = await refreshSavedIds();
+        const saved = await refreshSavedIds(service);
         const filtered = saved.filter((s) => s.type === mediaType);
         setSavedItems(filtered);
         setSelected(filtered[0] || null);
       } else {
-        await loadAllForType(mediaType);
+        await loadAllForType(service, mediaType);
       }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to refresh");
@@ -293,12 +350,12 @@ export default function MethodsPage() {
     setSaving(true);
     try {
       if (g.saved) {
-        await fetch(`/api/higgsfield/generations/save?id=${encodeURIComponent(g.id)}`, {
+        await fetch(`/api/${service}/generations/save?id=${encodeURIComponent(g.id)}`, {
           method: "DELETE",
         });
         toast.success("Removed from saved");
       } else {
-        const res = await fetch("/api/higgsfield/generations/save", {
+        const res = await fetch(`/api/${service}/generations/save`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ generation: g }),
@@ -316,7 +373,7 @@ export default function MethodsPage() {
       setItems((prev) => prev.map((i) => (i.id === g.id ? { ...i, saved: !g.saved } : i)));
       setSelected((prev) => (prev && prev.id === g.id ? { ...prev, saved: !g.saved } : prev));
       if (scope === "saved") {
-        const saved = (await loadSaved()).filter((s) => s.type === mediaType);
+        const saved = (await loadSaved(service)).filter((s) => s.type === mediaType);
         setSavedItems(saved);
         if (g.saved) setSelected(saved[0] || null);
       }
@@ -338,6 +395,23 @@ export default function MethodsPage() {
           <Button variant="ghost" size="sm" onClick={refresh} className="h-7 px-2">
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
+        </div>
+
+        <div className="glass rounded-xl p-1 flex gap-1 mb-2">
+          {SERVICES.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => switchService(s.id)}
+              className={cn(
+                "flex-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                service === s.id
+                  ? "bg-[oklch(0.75_0.15_270_/_15%)] text-[oklch(0.85_0.12_270)]"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {s.label}
+            </button>
+          ))}
         </div>
 
         {accounts.length > 1 && (

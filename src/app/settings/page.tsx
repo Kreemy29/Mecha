@@ -46,6 +46,80 @@ export default function SettingsPage() {
   const [savingToken, setSavingToken] = useState(false);
   const [showManual, setShowManual] = useState(false);
 
+  // Yapper (yapper.so) — a plain REST API keyed by a static API key, so
+  // there's no OAuth connect flow like Higgsfield's, just a key paste.
+  const [ypStatus, setYpStatus] = useState<HfStatus | null>(null);
+  const [ypKeyInput, setYpKeyInput] = useState("");
+  const [ypLabelInput, setYpLabelInput] = useState("");
+  const [showYpKey, setShowYpKey] = useState(false);
+  const [savingYpKey, setSavingYpKey] = useState(false);
+
+  const fetchYpStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/yapper/status");
+      setYpStatus(await res.json());
+    } catch {
+      setYpStatus({ connected: false, hasToken: false, accounts: [], activeAccountId: null });
+    }
+  }, []);
+
+  const switchYpAccount = async (id: string) => {
+    try {
+      const res = await fetch("/api/yapper/accounts/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      toast.success("Switched active Yapper account");
+      fetchYpStatus();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to switch account");
+    }
+  };
+
+  const removeYpAccount = async (id: string) => {
+    try {
+      await fetch(`/api/yapper/accounts?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      toast.success("Account removed");
+      fetchYpStatus();
+    } catch {
+      toast.error("Failed to remove account");
+    }
+  };
+
+  useEffect(() => {
+    fetchYpStatus();
+  }, [fetchYpStatus]);
+
+  const handleSaveYpKey = async () => {
+    if (!ypKeyInput.trim()) return;
+    setSavingYpKey(true);
+    try {
+      const res = await fetch("/api/yapper/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: ypKeyInput.trim(), label: ypLabelInput.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast.success("Yapper API key saved");
+        setYpKeyInput("");
+        setYpLabelInput("");
+        fetchYpStatus();
+      } else {
+        toast.error(data.error || "Failed to save API key");
+      }
+    } catch {
+      toast.error("Failed to save API key");
+    } finally {
+      setSavingYpKey(false);
+    }
+  };
+
   const fetchStatus = useCallback(async () => {
     try {
       const res = await fetch("/api/higgsfield/status");
@@ -386,6 +460,152 @@ export default function SettingsPage() {
                     )}
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Yapper API */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-violet-500/10">
+                <Zap className="h-4 w-4 text-violet-400" />
+              </div>
+              <div>
+                <CardTitle className="text-base">Yapper</CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Image & video generation history via the Yapper REST API
+                </p>
+              </div>
+            </div>
+            {ypStatus && (
+              <Badge
+                className={`text-xs border gap-1.5 ${
+                  ypStatus.hasToken
+                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                    : "bg-red-500/10 text-red-400 border-red-500/20"
+                }`}
+              >
+                {ypStatus.hasToken ? (
+                  <>
+                    <CheckCircle2 className="h-3 w-3" />
+                    Key configured
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="h-3 w-3" />
+                    Not connected
+                  </>
+                )}
+              </Badge>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Yapper has no OAuth for the REST API — an API key paste is the
+              only connect path (create one at yapper.so/account/developer). */}
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Create an API key at{" "}
+              <a
+                href="https://yapper.so/account/developer"
+                target="_blank"
+                rel="noreferrer"
+                className="underline hover:text-foreground"
+              >
+                yapper.so/account/developer
+              </a>{" "}
+              and paste it below. Pasting a different key connects it as a
+              separate account alongside any others.
+            </p>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Input
+                  type={showYpKey ? "text" : "password"}
+                  value={ypKeyInput}
+                  onChange={(e) => setYpKeyInput(e.target.value)}
+                  placeholder="yap_live_..."
+                  className="glass border-white/10 pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowYpKey(!showYpKey)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showYpKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <Input
+                value={ypLabelInput}
+                onChange={(e) => setYpLabelInput(e.target.value)}
+                placeholder="Label (optional)"
+                className="glass border-white/10 w-40"
+              />
+              <Button
+                onClick={handleSaveYpKey}
+                disabled={!ypKeyInput.trim() || savingYpKey}
+                variant="outline"
+                className="rounded-xl border-white/10 gap-2"
+              >
+                {savingYpKey ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Key className="h-4 w-4" />
+                )}
+                Save
+              </Button>
+            </div>
+          </div>
+
+          {/* Connected accounts */}
+          {ypStatus && ypStatus.accounts.length > 0 && (
+            <div className="space-y-2 border-t border-white/5 pt-3">
+              <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Connected accounts
+              </label>
+              <div className="space-y-1.5">
+                {ypStatus.accounts.map((acct) => {
+                  const isActive = acct.id === ypStatus.activeAccountId;
+                  return (
+                    <div
+                      key={acct.id}
+                      className="flex items-center gap-2 p-2 rounded-xl glass text-sm"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => !isActive && switchYpAccount(acct.id)}
+                        disabled={isActive}
+                        className={`flex items-center gap-2 flex-1 text-left ${
+                          isActive ? "" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                        title={isActive ? "Active account" : "Switch to this account"}
+                      >
+                        <CheckCircle2
+                          className={`h-4 w-4 shrink-0 ${
+                            isActive ? "text-emerald-400" : "text-muted-foreground/30"
+                          }`}
+                        />
+                        {acct.label}
+                        {isActive && (
+                          <Badge className="text-[10px] bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                            active
+                          </Badge>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeYpAccount(acct.id)}
+                        className="text-muted-foreground hover:text-red-400 transition-colors p-1"
+                        title="Remove this account"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
