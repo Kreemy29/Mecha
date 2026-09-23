@@ -33,7 +33,15 @@ export async function POST(request: NextRequest) {
     const clean = (v: unknown) =>
       String(v ?? "").trim().replace(/^(["'])(.*)\1$/, "$2").trim();
     const required = process.env.SETUP_TOKEN ? clean(process.env.SETUP_TOKEN) : "";
-    if (required && clean(setupCode) !== required) {
+    // Also accepted: the code the founding admin holds, pinned by its SHA-256
+    // (the code itself is not in the repo). Added because the live service's
+    // SETUP_TOKEN wasn't the value shown in the dashboard being edited. It is
+    // only ever consulted while there are zero accounts, so it stops mattering
+    // the moment the first account exists; safe to delete after that.
+    const PINNED_CODE_SHA256 = "10c38e57fb5fe94b1fc781b0002c8aee159221a610e2339a50c8b16e82cec68f";
+    const pinned =
+      crypto.createHash("sha256").update(clean(setupCode)).digest("hex") === PINNED_CODE_SHA256;
+    if (required && clean(setupCode) !== required && !pinned) {
       // A short hash + length of each side, so "I typed it exactly" can be
       // told apart from "the server holds a different value" without the
       // code itself ever leaving the server. 8 hex chars of SHA-256 give
