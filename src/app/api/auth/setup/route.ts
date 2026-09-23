@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import {
   createSession,
@@ -33,8 +34,16 @@ export async function POST(request: NextRequest) {
       String(v ?? "").trim().replace(/^(["'])(.*)\1$/, "$2").trim();
     const required = process.env.SETUP_TOKEN ? clean(process.env.SETUP_TOKEN) : "";
     if (required && clean(setupCode) !== required) {
+      // A short hash + length of each side, so "I typed it exactly" can be
+      // told apart from "the server holds a different value" without the
+      // code itself ever leaving the server. 8 hex chars of SHA-256 give
+      // nothing usable for guessing a long random token.
+      const fp = (v: string) =>
+        `${v.length} chars, fingerprint ${crypto.createHash("sha256").update(v).digest("hex").slice(0, 8)}`;
       return NextResponse.json(
-        { error: "Wrong setup code" },
+        {
+          error: `Wrong setup code. Server's code: ${fp(required)}. Yours: ${fp(clean(setupCode))}.`,
+        },
         { status: 403 }
       );
     }
