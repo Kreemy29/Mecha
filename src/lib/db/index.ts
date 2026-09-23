@@ -13,8 +13,34 @@ if (!fs.existsSync(dir)) {
 }
 
 const sqlite = new Database(resolvedPath);
-sqlite.pragma("journal_mode = WAL");
-sqlite.pragma("busy_timeout = 5000");
+
+// `next build` evaluates this module in dozens of workers at once (47 on
+// Render), all opening the same file. Switching to WAL and the CREATE TABLEs
+// below both need a write lock, so:
+//  - busy_timeout goes FIRST, or a colliding worker fails instantly with
+//    SQLITE_BUSY ("database is locked") instead of waiting;
+//  - the schema runs in an IMMEDIATE transaction: a plain CREATE ... IF NOT
+//    EXISTS starts as a read and upgrades, and SQLite skips the busy handler
+//    for that upgrade;
+//  - both are retried, which also covers SQLITE_IOERR_TRUNCATE, a Windows
+//    quirk when several processes create a brand-new file together.
+sqlite.pragma("busy_timeout = 15000");
+
+const pause = new Int32Array(new SharedArrayBuffer(4));
+function withRetry<T>(fn: () => T): T {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return fn();
+    } catch (err) {
+      const code = (err as { code?: string }).code ?? "";
+      const transient = code.startsWith("SQLITE_BUSY") || code === "SQLITE_IOERR_TRUNCATE";
+      if (!transient || attempt >= 50) throw err;
+      Atomics.wait(pause, 0, 0, 50 + Math.random() * 150);
+    }
+  }
+}
+
+withRetry(() => sqlite.pragma("journal_mode = WAL"));
 
 // These predate the ensure*Tables() pattern used by auth.ts / instagram.ts /
 // presets-store.ts for tables added later. They only ever existed because
@@ -22,7 +48,7 @@ sqlite.pragma("busy_timeout = 5000");
 // SQLite file (e.g. a first boot on Render) has none of them. Create them
 // here, at the module's single entry point, so both the web process and the
 // worker process have them before either runs a query.
-sqlite.exec(`
+const CORE_SCHEMA = `
   CREATE TABLE IF NOT EXISTS characters (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -88,7 +114,8 @@ sqlite.exec(`
     image_path TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
-`);
+`;
+withRetry(() => sqlite.transaction(() => sqlite.exec(CORE_SCHEMA)).immediate());
 
 export const db = drizzle(sqlite, { schema });
 export { schema };
