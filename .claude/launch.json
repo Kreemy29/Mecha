@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "mecha-dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
+      "runtimeArgs": ["scripts/dev-all.mjs"],
       "port": 3000
     }
   ]

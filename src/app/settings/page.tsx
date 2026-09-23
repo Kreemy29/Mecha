@@ -234,7 +234,7 @@ export default function SettingsPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
+        <h2 className="text-2xl font-semibold tracking-tight">
           Settings
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
@@ -247,8 +247,8 @@ export default function SettingsPage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-violet-500/10">
-                <Zap className="h-4 w-4 text-violet-400" />
+              <div className="p-2 rounded-lg bg-brand/10">
+                <Zap className="h-4 w-4 text-brand" />
               </div>
               <div>
                 <CardTitle className="text-base">Higgsfield MCP</CardTitle>
@@ -295,7 +295,7 @@ export default function SettingsPage() {
                 className={`rounded-xl gap-2 text-white ${
                   hfStatus?.hasToken
                     ? "bg-white/10 hover:bg-white/15"
-                    : "bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)]"
+                    : "bg-brand hover:bg-brand/90"
                 }`}
               >
                 <Plug className="h-4 w-4" />
@@ -471,8 +471,8 @@ export default function SettingsPage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-violet-500/10">
-                <Zap className="h-4 w-4 text-violet-400" />
+              <div className="p-2 rounded-lg bg-brand/10">
+                <Zap className="h-4 w-4 text-brand" />
               </div>
               <div>
                 <CardTitle className="text-base">Yapper</CardTitle>

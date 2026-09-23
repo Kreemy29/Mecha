@@ -387,7 +387,7 @@ export default function MethodsPage() {
   const list = scope === "saved" ? savedItems : items;
 
   return (
-    <div className="flex h-screen pt-20">
+    <div className="flex h-[calc(100dvh-11rem)] glass rounded-xl overflow-hidden">
       {/* List */}
       <div className="w-80 shrink-0 border-r border-white/10 overflow-y-auto p-3 space-y-2">
         <div className="flex items-center justify-between px-1 pb-2">
@@ -405,7 +405,7 @@ export default function MethodsPage() {
               className={cn(
                 "flex-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
                 service === s.id
-                  ? "bg-[oklch(0.75_0.15_270_/_15%)] text-[oklch(0.85_0.12_270)]"
+                  ? "bg-brand/15 text-brand"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
@@ -434,7 +434,7 @@ export default function MethodsPage() {
             className={cn(
               "flex-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
               scope === "all"
-                ? "bg-[oklch(0.75_0.15_270_/_15%)] text-[oklch(0.85_0.12_270)]"
+                ? "bg-brand/15 text-brand"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
@@ -445,7 +445,7 @@ export default function MethodsPage() {
             className={cn(
               "flex-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
               scope === "saved"
-                ? "bg-[oklch(0.75_0.15_270_/_15%)] text-[oklch(0.85_0.12_270)]"
+                ? "bg-brand/15 text-brand"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
@@ -495,7 +495,7 @@ export default function MethodsPage() {
                 className={cn(
                   "w-full flex items-center gap-3 rounded-xl p-2 text-left transition-colors",
                   selected?.id === g.id
-                    ? "bg-[oklch(0.75_0.15_270_/_15%)]"
+                    ? "bg-brand/15"
                     : "hover:bg-white/5"
                 )}
               >
@@ -526,7 +526,7 @@ export default function MethodsPage() {
                     />
                   ) : null}
                   {g.saved && (
-                    <BookmarkCheck className="absolute top-0.5 right-0.5 h-3 w-3 text-[oklch(0.85_0.12_270)] drop-shadow" />
+                    <BookmarkCheck className="absolute top-0.5 right-0.5 h-3 w-3 text-brand drop-shadow" />
                   )}
                 </div>
                 <div className="min-w-0 flex-1">

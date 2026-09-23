@@ -74,6 +74,16 @@ with it set, the first-run form asks for the code, and only you have it.
 After the first account exists, `/api/auth/setup` refuses forever, so the code
 cannot be reused.
 
+Login is **on** (`LOGIN_DISABLED = false` in `src/proxy.ts`). Sessions slide:
+anyone who opens the app at least once every 60 days stays signed in. That only
+holds if the disk from step 2 is attached — without it every deploy wipes the
+accounts and the first-run screen comes back.
+
+Roles for the Instagram department: **CEO**, **Developer / AI Content Manager**
+(owner), **Trend Researcher**, **Content Creator**. Researchers and creators
+must clock in (top right) before they can submit, and install the Chrome work
+tracker from the in-app **Tracker** page (puzzle icon).
+
 ## 6. Reconnect Higgsfield
 
 **Settings → Connect Higgsfield MCP.** OAuth derives its redirect URI from the

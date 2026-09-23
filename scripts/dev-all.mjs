@@ -6,16 +6,27 @@
 // running, generation silently stops ("queued forever"). This keeps it alive.
 
 import { spawn } from "node:child_process";
+import path from "node:path";
 
 const isWin = process.platform === "win32";
 let shuttingDown = false;
 const children = [];
 
+// Put the Node running this script first on the children's PATH, so `npm`
+// resolves even when the launcher was started by absolute path from a shell
+// whose PATH doesn't have Node on it.
+const nodeDir = path.dirname(process.execPath);
+const pathKey = Object.keys(process.env).find((k) => k.toUpperCase() === "PATH") || "PATH";
+const childEnv = {
+  ...process.env,
+  [pathKey]: `${nodeDir}${path.delimiter}${process.env[pathKey] || ""}`,
+};
+
 function run(name, color, cmd, args, { restart = false } = {}) {
   const child = spawn(cmd, args, {
     shell: isWin, // npm/tsx resolve via shell on Windows
     stdio: ["ignore", "pipe", "pipe"],
-    env: process.env,
+    env: childEnv,
   });
   children.push(child);
 

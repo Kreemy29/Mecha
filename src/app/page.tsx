@@ -79,8 +79,8 @@ const statusConfig: Record<
     dot: "bg-orange-400",
   },
   rejected: {
-    color: "bg-violet-500/10 text-violet-400 border-violet-500/20",
-    dot: "bg-violet-400",
+    color: "bg-brand/10 text-brand border-brand/20",
+    dot: "bg-brand",
   },
 };
 
@@ -174,7 +174,7 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex items-end justify-between">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
+          <h2 className="text-2xl font-semibold tracking-tight">
             Dashboard
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
@@ -184,7 +184,7 @@ export default function Dashboard() {
         <Button
           onClick={createTestJob}
           size="sm"
-          className="glass-strong border-white/10 bg-[oklch(0.75_0.15_270_/_10%)] hover:bg-[oklch(0.75_0.15_270_/_20%)] text-foreground gap-2 rounded-xl"
+          className="glass-strong border-white/10 bg-brand/10 hover:bg-brand/20 text-foreground gap-2 rounded-xl"
         >
           <Plus className="h-4 w-4" />
           Create Test Job
@@ -265,8 +265,8 @@ export default function Dashboard() {
               <CardTitle className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Cost Today
               </CardTitle>
-              <div className="p-2 rounded-lg bg-violet-500/10">
-                <DollarSign className="h-4 w-4 text-violet-400" />
+              <div className="p-2 rounded-lg bg-brand/10">
+                <DollarSign className="h-4 w-4 text-brand" />
               </div>
             </div>
           </CardHeader>
@@ -283,7 +283,7 @@ export default function Dashboard() {
                 </div>
                 <div className="relative h-1.5 rounded-full bg-white/5 overflow-hidden">
                   <div
-                    className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-violet-500 to-purple-500 transition-all duration-500"
+                    className="absolute inset-y-0 left-0 rounded-full bg-brand transition-all duration-500"
                     style={{ width: `${costPercent}%` }}
                   />
                 </div>

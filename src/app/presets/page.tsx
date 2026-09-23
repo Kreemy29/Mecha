@@ -160,7 +160,7 @@ export default function PresetsPage() {
     <div className="space-y-8">
       <div className="flex items-end justify-between">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
+          <h2 className="text-2xl font-semibold tracking-tight">
             Presets
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
@@ -185,7 +185,7 @@ export default function PresetsPage() {
                 <Button
                   onClick={openCreate}
                   size="sm"
-                  className="glass-strong border-white/10 bg-[oklch(0.75_0.15_270_/_10%)] hover:bg-[oklch(0.75_0.15_270_/_20%)] text-foreground gap-2 rounded-xl"
+                  className="glass-strong border-white/10 bg-brand/10 hover:bg-brand/20 text-foreground gap-2 rounded-xl"
                 />
               }
             >
@@ -274,7 +274,7 @@ export default function PresetsPage() {
                   </Button>
                   <Button
                     onClick={handleSave}
-                    className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white"
+                    className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground"
                   >
                     {editingId ? "Update" : "Create"}
                   </Button>
@@ -318,7 +318,7 @@ export default function PresetsPage() {
               <Button
                 onClick={openCreate}
                 size="sm"
-                className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+                className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
               >
                 <Plus className="h-4 w-4" />
                 Create Preset

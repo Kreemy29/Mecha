@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { cookies } from "next/headers";
 import { db, rawDb, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
+import { type Role } from "@/lib/roles";
 
 // Accounts, passwords and sessions for OneUp.
 //
@@ -10,27 +11,12 @@ import { eq } from "drizzle-orm";
 // scrypt hash with a per-user salt. Session tokens are stored HASHED too, so a
 // leaked database still can't be used to impersonate anyone.
 
-export const ROLES = [
-  "owner",
-  "ai_artist",
-  "meta_ads",
-  "marketing_manager",
-] as const;
-export type Role = (typeof ROLES)[number];
-
-export const ROLE_LABEL: Record<Role, string> = {
-  owner: "Owner",
-  ai_artist: "AI Artist",
-  meta_ads: "Meta Ads",
-  marketing_manager: "Marketing Manager",
-};
-
-export function isRole(value: unknown): value is Role {
-  return ROLES.includes(value as Role);
-}
+export { ROLES, ROLE_LABEL, isRole, type Role } from "@/lib/roles";
 
 export const SESSION_COOKIE = "oneup_session";
-const SESSION_DAYS = 30;
+// Sliding: every visit pushes expiry out again (see touchSession), so someone
+// who uses the app at least once every SESSION_DAYS never gets signed out.
+const SESSION_DAYS = 60;
 
 let ensured = false;
 export function ensureAuthTables(): void {
@@ -251,6 +237,27 @@ export function userForToken(token: string): PublicUser | null {
   return row ? toPublic(row) : null;
 }
 
+// Push a live session's expiry out to a full SESSION_DAYS from now. Only
+// writes when it has drifted by a day or more, so it isn't a write per request.
+export function touchSession(token: string): boolean {
+  ensureAuthTables();
+  const tokenHash = hashToken(token);
+  const session = db
+    .select()
+    .from(schema.sessions)
+    .where(eq(schema.sessions.tokenHash, tokenHash))
+    .get();
+  if (!session || Date.parse(session.expiresAt) < Date.now()) return false;
+  const target = Date.now() + SESSION_DAYS * 86400_000;
+  if (target - Date.parse(session.expiresAt) > 86400_000) {
+    db.update(schema.sessions)
+      .set({ expiresAt: new Date(target).toISOString() })
+      .where(eq(schema.sessions.tokenHash, tokenHash))
+      .run();
+  }
+  return true;
+}
+
 // Whoever is making the current request, or null. This is the ONLY source of
 // identity the server trusts — a client-supplied name can claim to be anyone.
 export async function currentUser(): Promise<PublicUser | null> {
@@ -260,27 +267,32 @@ export async function currentUser(): Promise<PublicUser | null> {
 
 export const SESSION_MAX_AGE = SESSION_DAYS * 86400;
 
-// Stand-in identity while login is disabled (see proxy.ts) — keeps the
-// callers below (which attribute a request to `user.name`) working with no
-// session in play. Remove alongside LOGIN_DISABLED.
-const ANONYMOUS_USER: PublicUser = {
-  id: 0,
-  username: "anonymous",
-  name: "Someone",
-  role: "owner",
-  isAdmin: true,
-};
-
 // The authorization boundary, kept next to the data as Next's auth guide
 // recommends — proxy.ts only does an optimistic cookie check, so anything that
 // reads or writes real data validates here instead.
 //
 // Returns the user, or a ready-to-return 401/403 response.
-export async function requireUser(options?: { admin?: boolean }): Promise<
+export async function requireUser(options?: {
+  admin?: boolean;
+  // A permission from `can` in lib/roles.ts.
+  allow?: (user: PublicUser) => boolean;
+}): Promise<
   | { user: PublicUser; deny: null }
   | { user: null; deny: Response }
 > {
-  const user = (await currentUser()) ?? ANONYMOUS_USER;
+  const user = await currentUser();
+  if (!user) {
+    return {
+      user: null,
+      deny: Response.json({ error: "Not signed in" }, { status: 401 }),
+    };
+  }
+  if (options?.allow && !options.allow(user)) {
+    return {
+      user: null,
+      deny: Response.json({ error: "Your role can't do this" }, { status: 403 }),
+    };
+  }
   if (options?.admin && !user.isAdmin) {
     return {
       user: null,

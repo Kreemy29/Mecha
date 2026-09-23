@@ -334,7 +334,7 @@ export default function RequestsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
+        <h2 className="text-2xl font-semibold tracking-tight">
           Requests
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
@@ -365,7 +365,7 @@ export default function RequestsPage() {
             )}
             {q.label}
             {openCount(q.key) > 0 && (
-              <Badge className="text-[10px] bg-[oklch(0.75_0.15_270_/_20%)] border-white/10">
+              <Badge className="text-[10px] bg-brand/20 border-white/10">
                 {openCount(q.key)}
               </Badge>
             )}
@@ -418,7 +418,7 @@ export default function RequestsPage() {
                   size="sm"
                   onClick={addFormatFromUrl}
                   disabled={saving || !newUrl.trim()}
-                  className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-1.5 text-xs"
+                  className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-1.5 text-xs"
                 >
                   {saving ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -482,7 +482,7 @@ export default function RequestsPage() {
                       href={f.sourceUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-[10px] text-[oklch(0.85_0.12_270)] hover:underline inline-flex items-center gap-1"
+                      className="text-[10px] text-brand hover:underline inline-flex items-center gap-1"
                     >
                       <ExternalLink className="h-2.5 w-2.5" /> Instagram
                     </a>
@@ -558,7 +558,7 @@ export default function RequestsPage() {
                         href={r.instagramUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="font-mono text-xs text-[oklch(0.85_0.12_270)] hover:underline inline-flex items-center gap-1"
+                        className="font-mono text-xs text-brand hover:underline inline-flex items-center gap-1"
                         title="Open the original reel on Instagram"
                       >
                         {r.shortcode}
@@ -615,7 +615,7 @@ export default function RequestsPage() {
                       size="sm"
                       onClick={() => openIn(r, "seedance")}
                       disabled={busy === r.id}
-                      className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-1.5 text-xs"
+                      className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-1.5 text-xs"
                     >
                       <Shirt className="h-3.5 w-3.5" />
                       Seedance
@@ -698,7 +698,7 @@ export default function RequestsPage() {
                         size="sm"
                         onClick={() => reply(r.id)}
                         disabled={posting || !draft.trim()}
-                        className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-1.5 text-xs"
+                        className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-1.5 text-xs"
                       >
                         {posting ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />

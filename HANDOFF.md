@@ -66,7 +66,33 @@ covered in depth here): **`/instagram`** (RapidAPI feed browse + media download,
 `services/instagram.ts`), **`/formats`**, and prompt/style preset management
 (**`/api/prompt-presets`**, **`/api/style-presets`**, `services/presets-store.ts`).
 
-### Seedance batch flow (the main new thing)
+### Look and feel
+The UI copies OneUp Insights' design system (github.com/3morad/Oneup-Insights,
+`web/src`), dark variant: ink/orange tokens in `globals.css`, Inter Tight,
+flat cards, Phosphor icons in the chrome. Nav = top bar of sections
+(`lib/nav.ts`, `components/app/app-nav.tsx`) + per-section tabs
+(`section-nav.tsx`). The old `glass*` classes are kept as aliases for flat
+card surfaces. Copy new UI patterns from Insights rather than inventing them.
+
+### Instagram department workflow
+Login is on (see DEPLOY.md). Roles live in `src/lib/roles.ts` (`can.*` = who may
+do what; `NAV_FOR_ROLE` trims the nav for researchers/creators).
+
+| Page | Who | What |
+|------|-----|------|
+| `/trends` | Trend researcher → owner/CEO review | Day calendar; Reels + Carousels sections; each entry = IG link, niche, models, "why viral". Approve/reject with a note |
+| `/production` | Owner assigns → creator hands in | Approved trends get a method (saved Higgsfield/Yapper generation), a creator, models, one example. One item per remaining model, handed in as a Drive link, approved/rejected per model |
+| `/team` | Owner/CEO | Per day: clock sessions, hours, Chrome activity (active/idle/away, top sites, timeline), trends + items approved |
+| `/tracker` | Everyone | Download + connect the Chrome extension (`extension/`, MV3) with a per-user key |
+
+Services: `worktime.ts` (clock + activity + tracker keys), `trends.ts`,
+`production.ts`. Tables are created at runtime (no `db:push`). Researchers and
+creators must be clocked in to submit (`clock-gate.ts`). A session with no
+heartbeat (app tab or extension) for 2h is auto-closed at its last sign of life.
+The extension endpoint `/api/tracker/ext` is public in the proxy and
+authenticates by `Authorization: Bearer mk_...`.
+
+### Seedance batch flow
 `Setup → Videos → Background → Outfits → Stills → Seedance`
 
 1. **Setup** — character, video provider (Higgsfield / KIE), aspect ratio.

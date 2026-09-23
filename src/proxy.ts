@@ -17,13 +17,15 @@ const PUBLIC_PATHS = [
   "/api/auth/logout",
   "/api/auth/session",
   "/api/auth/setup",
+  // The Chrome tracker has no session cookie — it authenticates every call
+  // with its own per-user key, checked in the route (services/tracker.ts).
+  "/api/tracker/ext",
 ];
 
-// Login is temporarily disabled — the DB kept resetting on Render without a
-// persistent disk, which locked people out and let anyone re-claim the
-// founding-admin slot. Re-enable by deleting this early return once the disk
-// is attached and accounts are worth gating again.
-const LOGIN_DISABLED = true;
+// Login needs the Render persistent disk (DEPLOY.md step 2): without it the
+// DB resets on every deploy, wiping accounts. Flip to true only as an
+// emergency escape hatch.
+const LOGIN_DISABLED = false;
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

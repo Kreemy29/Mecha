@@ -223,7 +223,7 @@ const statusColor: Record<string, string> = {
   succeeded: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
   failed: "bg-red-500/10 text-red-400 border-red-500/20",
   filtered: "bg-orange-500/10 text-orange-400 border-orange-500/20",
-  rejected: "bg-violet-500/10 text-violet-400 border-violet-500/20",
+  rejected: "bg-brand/10 text-brand border-brand/20",
 };
 
 const ASPECTS = ["9:16", "1:1", "16:9"];
@@ -1204,7 +1204,7 @@ export default function SeedancePage() {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
+        <h2 className="text-2xl font-semibold tracking-tight">
           Seedance — Video Recreation
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
@@ -1251,7 +1251,7 @@ export default function SeedancePage() {
               {characters.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
                   No characters yet.{" "}
-                  <a href="/characters" className="text-[oklch(0.85_0.12_270)] hover:underline">
+                  <a href="/characters" className="text-brand hover:underline">
                     Create one first
                   </a>
                 </p>
@@ -1264,7 +1264,7 @@ export default function SeedancePage() {
                       onClick={() => setSelectedCharacter(c)}
                       className={`w-full text-left p-3 rounded-xl transition-all flex gap-3 items-center ${
                         selectedCharacter?.id === c.id
-                          ? "glass-strong border-[oklch(0.75_0.15_270_/_30%)]"
+                          ? "glass-strong border-brand/30"
                           : "glass hover:bg-white/5"
                       }`}
                     >
@@ -1308,7 +1308,7 @@ export default function SeedancePage() {
                       onClick={() => setPromptProvider(p.id)}
                       className={`text-left p-2.5 rounded-xl transition-all min-w-[170px] ${
                         promptProvider === p.id
-                          ? "glass-strong border-[oklch(0.75_0.15_270_/_30%)]"
+                          ? "glass-strong border-brand/30"
                           : "glass hover:bg-white/5"
                       }`}
                     >
@@ -1340,7 +1340,7 @@ export default function SeedancePage() {
                       }}
                       className={`text-left p-2.5 rounded-xl transition-all min-w-[170px] ${
                         active
-                          ? "glass-strong border-[oklch(0.75_0.15_270_/_30%)]"
+                          ? "glass-strong border-brand/30"
                           : "glass hover:bg-white/5"
                       }`}
                     >
@@ -1363,7 +1363,7 @@ export default function SeedancePage() {
                           onClick={() => setDefaultAction(a.action)}
                           className={`px-2 py-1 rounded-lg text-xs border transition-colors ${
                             defaultAction === a.action
-                              ? "bg-[oklch(0.75_0.15_270_/_20%)] border-white/20"
+                              ? "bg-brand/20 border-white/20"
                               : "glass border-white/10 hover:bg-white/5"
                           }`}
                           title={a.action}
@@ -1391,7 +1391,7 @@ export default function SeedancePage() {
                       type="checkbox"
                       checked={naturalMotion}
                       onChange={(e) => setNaturalMotion(e.target.checked)}
-                      className="accent-[oklch(0.75_0.15_270)]"
+                      className="accent-brand"
                     />
                     Subtle motion prompt — gentle head tilt, slight smile, handheld
                     selfie framing (best for casual clips)
@@ -1454,7 +1454,7 @@ export default function SeedancePage() {
             <Button
               disabled={!selectedCharacter}
               onClick={() => setStep("videos")}
-              className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+              className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
             >
               Next: Add Videos
               <Film className="h-4 w-4" />
@@ -1473,7 +1473,7 @@ export default function SeedancePage() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
-                  <Bookmark className="h-4 w-4 text-[oklch(0.75_0.15_270)]" />
+                  <Bookmark className="h-4 w-4 text-brand" />
                   Formats
                   <Badge className="bg-white/10 text-[10px]">
                     {promptPresets.length}
@@ -1524,7 +1524,7 @@ export default function SeedancePage() {
                           size="sm"
                           onClick={() => usePromptPreset(p)}
                           disabled={!p.videoPath}
-                          className="w-full h-7 text-[11px] bg-[oklch(0.75_0.15_270_/_30%)] hover:bg-[oklch(0.75_0.15_270_/_50%)] text-white border border-white/10"
+                          className="w-full h-7 text-[11px] bg-brand/30 hover:bg-brand/50 text-white border border-white/10"
                         >
                           {p.videoPath ? "Use" : "No video"}
                         </Button>
@@ -1548,7 +1548,7 @@ export default function SeedancePage() {
                 {framedVideos > 0 && (
                   <Button
                     onClick={() => setStep("background")}
-                    className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+                    className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
                   >
                     Next: Background ({framedVideos} video{framedVideos === 1 ? "" : "s"})
                     <ImagePlus className="h-4 w-4" />
@@ -1592,7 +1592,7 @@ export default function SeedancePage() {
                 <Button
                   onClick={handleAddReel}
                   disabled={intaking || !reelUrl.trim()}
-                  className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+                  className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
                 >
                   {intaking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                   Add
@@ -1618,7 +1618,7 @@ export default function SeedancePage() {
                     </div>
                     <div className="flex items-center gap-2">
                       {vid.presetPrompt && (
-                        <Badge className="text-xs bg-[oklch(0.75_0.15_270_/_15%)] text-[oklch(0.85_0.12_270)] border-white/10 border gap-1">
+                        <Badge className="text-xs bg-brand/15 text-brand border-white/10 border gap-1">
                           <Bookmark className="h-3 w-3" /> Prompt ready
                         </Badge>
                       )}
@@ -1647,7 +1647,7 @@ export default function SeedancePage() {
                         <p className="text-[11px] text-muted-foreground">
                           Pick the base frame, or upload your own
                         </p>
-                        <label className="text-[11px] text-[oklch(0.85_0.12_270)] hover:underline cursor-pointer flex items-center gap-1">
+                        <label className="text-[11px] text-brand hover:underline cursor-pointer flex items-center gap-1">
                           <Upload className="h-3 w-3" />
                           Upload frame
                           <input
@@ -1743,11 +1743,11 @@ export default function SeedancePage() {
                           <button
                             onClick={() => patchVideo(vid.id, { customFramePath: null })}
                             title="Uploaded frame — click to remove"
-                            className="relative aspect-[3/4] rounded-lg overflow-hidden border-2 border-[oklch(0.75_0.15_270)]"
+                            className="relative aspect-[3/4] rounded-lg overflow-hidden border-2 border-brand"
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={fileUrl(vid.customFramePath)} alt="custom frame" className="w-full h-full object-cover" />
-                            <div className="absolute inset-0 flex items-center justify-center bg-[oklch(0.75_0.15_270_/_25%)]">
+                            <div className="absolute inset-0 flex items-center justify-center bg-brand/25">
                               <CheckCircle2 className="h-5 w-5 text-white" />
                             </div>
                             <Badge className="absolute top-1 left-1 text-[8px] bg-black/60 border-white/10">yours</Badge>
@@ -1770,14 +1770,14 @@ export default function SeedancePage() {
                             title={picked ? "Picked — click to remove" : "Pick this frame"}
                             className={`relative aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all ${
                               picked
-                                ? "border-[oklch(0.75_0.15_270)]"
+                                ? "border-brand"
                                 : "border-transparent hover:border-white/20"
                             }`}
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={fileUrl(f)} alt={`f${i + 1}`} className="w-full h-full object-cover" loading="lazy" />
                             {picked && (
-                              <span className="absolute top-1 right-1 h-4 w-4 rounded-full bg-[oklch(0.75_0.15_270)] text-white text-[9px] font-semibold flex items-center justify-center">
+                              <span className="absolute top-1 right-1 h-4 w-4 rounded-full bg-brand text-brand-foreground text-[9px] font-semibold flex items-center justify-center">
                                 {order + 1}
                               </span>
                             )}
@@ -1853,7 +1853,7 @@ export default function SeedancePage() {
                             key={p.id}
                             className={`group flex items-center gap-1.5 rounded-lg border px-2 py-1.5 transition-colors ${
                               active
-                                ? "bg-[oklch(0.75_0.15_270_/_20%)] border-white/20"
+                                ? "bg-brand/20 border-white/20"
                                 : "glass border-white/10 hover:bg-white/5"
                             }`}
                           >
@@ -1977,7 +1977,7 @@ export default function SeedancePage() {
                             alt={`shot ${idx + 1}`}
                             className="w-14 aspect-[3/4] rounded-lg object-cover border border-white/10"
                           />
-                          <span className="absolute -top-1 -left-1 h-4 w-4 rounded-full bg-[oklch(0.75_0.15_270)] text-white text-[9px] font-semibold flex items-center justify-center">
+                          <span className="absolute -top-1 -left-1 h-4 w-4 rounded-full bg-brand text-brand-foreground text-[9px] font-semibold flex items-center justify-center">
                             {idx + 1}
                           </span>
                         </div>
@@ -2028,7 +2028,7 @@ export default function SeedancePage() {
           <div className="flex justify-end">
             <Button
               onClick={() => setStep("outfits")}
-              className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+              className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
             >
               Next: Outfits
             </Button>
@@ -2081,7 +2081,7 @@ export default function SeedancePage() {
                           alt={`shot ${idx + 1}`}
                           className="w-16 aspect-[3/4] rounded-lg object-cover border border-white/10"
                         />
-                        <span className="absolute -top-1 -left-1 h-4 w-4 rounded-full bg-[oklch(0.75_0.15_270)] text-white text-[9px] font-semibold flex items-center justify-center">
+                        <span className="absolute -top-1 -left-1 h-4 w-4 rounded-full bg-brand text-brand-foreground text-[9px] font-semibold flex items-center justify-center">
                           {idx + 1}
                         </span>
                       </div>
@@ -2104,7 +2104,7 @@ export default function SeedancePage() {
                                 onClick={() => set({ outfit: sp.description })}
                                 className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors truncate max-w-[160px] ${
                                   style.outfit === sp.description
-                                    ? "bg-[oklch(0.75_0.15_270_/_25%)] border-white/20 text-white"
+                                    ? "bg-brand/25 border-white/20 text-white"
                                     : "bg-white/5 border-white/10 text-muted-foreground hover:text-foreground"
                                 }`}
                                 title={sp.description}
@@ -2138,7 +2138,7 @@ export default function SeedancePage() {
                               onClick={() => set({ mode: m })}
                               className={`px-1.5 py-0.5 rounded border transition-colors ${
                                 mode === m
-                                  ? "bg-[oklch(0.75_0.15_270_/_25%)] border-white/20 text-white"
+                                  ? "bg-brand/25 border-white/20 text-white"
                                   : "bg-white/5 border-white/10 text-muted-foreground hover:text-foreground"
                               }`}
                             >
@@ -2162,7 +2162,7 @@ export default function SeedancePage() {
                                   onClick={() => set({ engine: e })}
                                   className={`px-1.5 py-0.5 rounded border transition-colors ${
                                     engine === e
-                                      ? "bg-[oklch(0.75_0.15_270_/_25%)] border-white/20 text-white"
+                                      ? "bg-brand/25 border-white/20 text-white"
                                       : "bg-white/5 border-white/10 text-muted-foreground hover:text-foreground"
                                   }`}
                                 >
@@ -2182,7 +2182,7 @@ export default function SeedancePage() {
                                   onClick={() => set({ action: a.action })}
                                   className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${
                                     (style.action ?? defaultAction) === a.action
-                                      ? "bg-[oklch(0.75_0.15_270_/_25%)] border-white/20 text-white"
+                                      ? "bg-brand/25 border-white/20 text-white"
                                       : "bg-white/5 border-white/10 text-muted-foreground hover:text-foreground"
                                   }`}
                                 >
@@ -2261,7 +2261,7 @@ export default function SeedancePage() {
                                   onClick={() => set({ part: n })}
                                   className={`px-1.5 py-0.5 rounded border transition-colors ${
                                     (style.part ?? 1) === n
-                                      ? "bg-[oklch(0.75_0.15_270_/_25%)] border-white/20 text-white"
+                                      ? "bg-brand/25 border-white/20 text-white"
                                       : "bg-white/5 border-white/10 text-muted-foreground hover:text-foreground"
                                   }`}
                                 >
@@ -2310,7 +2310,7 @@ export default function SeedancePage() {
               {plannedVariants > 0 && (
                 <Button
                   onClick={buildVariants}
-                  className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+                  className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
                 >
                   Next: Stills ({plannedVariants})
                   <Sparkles className="h-4 w-4" />
@@ -2330,7 +2330,7 @@ export default function SeedancePage() {
               <Button
                 onClick={addOutfit}
                 disabled={!newOutfit.trim()}
-                className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+                className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
               >
                 <Shirt className="h-4 w-4" /> Add
               </Button>
@@ -2349,7 +2349,7 @@ export default function SeedancePage() {
                         key={p.id}
                         className={`group flex items-center gap-1.5 rounded-lg border px-2 py-1 transition-colors ${
                           added
-                            ? "bg-[oklch(0.75_0.15_270_/_20%)] border-white/20"
+                            ? "bg-brand/20 border-white/20"
                             : "glass border-white/10 hover:bg-white/5"
                         }`}
                       >
@@ -2522,7 +2522,7 @@ export default function SeedancePage() {
                                   onClick={() => generateStill(v)}
                                   disabled={v.writing || stillActive}
                                   size="sm"
-                                  className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+                                  className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
                                 >
                                   {v.writing || stillActive ? (
                                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -2619,7 +2619,7 @@ export default function SeedancePage() {
                 </div>
                 <Button
                   onClick={() => setStep('style')}
-                  className='rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2'
+                  className='rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2'
                 >
                   {bgDescription.trim() ? 'Next: Hair & Makeup' : "Next — keep video's background"}
                   <Scissors className='h-4 w-4' />
@@ -2817,7 +2817,7 @@ export default function SeedancePage() {
                         onClick={onClick}
                         className={`shrink-0 rounded-lg border p-1 transition-colors w-20 ${
                           active
-                            ? 'bg-[oklch(0.75_0.15_270_/_25%)] border-white/20 text-white'
+                            ? 'bg-brand/25 border-white/20 text-white'
                             : 'bg-white/5 border-white/10 text-muted-foreground hover:text-foreground'
                         }`}
                         title={label}
@@ -2849,7 +2849,7 @@ export default function SeedancePage() {
                             alt={`shot ${idx + 1}`}
                             className='w-16 aspect-[3/4] rounded-lg object-cover border border-white/10'
                           />
-                          <span className='absolute -top-1 -left-1 h-4 w-4 rounded-full bg-[oklch(0.75_0.15_270)] text-white text-[9px] font-semibold flex items-center justify-center'>
+                          <span className='absolute -top-1 -left-1 h-4 w-4 rounded-full bg-brand text-brand-foreground text-[9px] font-semibold flex items-center justify-center'>
                             {idx + 1}
                           </span>
                         </div>
@@ -2931,7 +2931,7 @@ export default function SeedancePage() {
                       <a
                         href={fileUrl(v.seedanceJob!.outputPath)}
                         download={`seedance-${v.seedanceJob!.id}.mp4`}
-                        className="inline-flex items-center gap-2 text-xs text-[oklch(0.85_0.12_270)] hover:underline"
+                        className="inline-flex items-center gap-2 text-xs text-brand hover:underline"
                       >
                         <Download className="h-3.5 w-3.5" /> Download
                       </a>

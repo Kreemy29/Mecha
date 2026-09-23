@@ -2,49 +2,20 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import {
+  ChartLineUpIcon,
+  ShieldCheckIcon,
+  SpinnerGapIcon,
+  WarningCircleIcon,
+} from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { toast } from "sonner";
-import {
-  Zap,
-  Crown,
-  Sparkles,
-  Megaphone,
-  BarChart3,
-  Loader2,
-  ArrowLeft,
-  LogIn,
-} from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Wordmark } from "@/components/brand/logo";
 
-type Role = "owner" | "ai_artist" | "meta_ads" | "marketing_manager";
-
-const ROLES: {
-  key: Role;
-  label: string;
-  blurb: string;
-  icon: React.ComponentType<{ className?: string }>;
-}[] = [
-  { key: "owner", label: "Owner", blurb: "Full view of everything", icon: Crown },
-  {
-    key: "ai_artist",
-    label: "AI Artist",
-    blurb: "Characters, stills and video",
-    icon: Sparkles,
-  },
-  {
-    key: "meta_ads",
-    label: "Meta Ads",
-    blurb: "Paid creative and ad requests",
-    icon: Megaphone,
-  },
-  {
-    key: "marketing_manager",
-    label: "Marketing Manager",
-    blurb: "Reels, planning and requests",
-    icon: BarChart3,
-  },
-];
-
+// Layout copied from OneUp Insights' login: ink brand panel on the left,
+// form on the right. The logic is Mecha's: username sign-in, plus the
+// first-run form that creates the founding admin.
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
@@ -53,11 +24,11 @@ function LoginForm() {
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
   const [needsToken, setNeedsToken] = useState(false);
   const [token, setToken] = useState("");
-  const [picked, setPicked] = useState<Role | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/auth/session")
@@ -70,200 +41,177 @@ function LoginForm() {
       .catch(() => setNeedsSetup(false));
   }, [router, next]);
 
-  const signIn = async () => {
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setBusy(true);
+    setError(null);
     try {
-      const res = await fetch("/api/auth/login", {
+      const res = await fetch(needsSetup ? "/api/auth/setup" : "/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify(
+          needsSetup ? { username, name, password, role: "owner", token } : { username, password }
+        ),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      toast.success(`Welcome back, ${data.user.name}`);
       // Full navigation so server components re-read the new session cookie.
-      window.location.href = next;
+      window.location.href = needsSetup ? "/" : next;
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Sign in failed");
+      setError(err instanceof Error ? err.message : "Sign in failed");
       setBusy(false);
     }
   };
 
-  const createFirst = async () => {
-    setBusy(true);
-    try {
-      const res = await fetch("/api/auth/setup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username,
-          name,
-          password,
-          role: picked ?? "owner",
-          token,
-        }),
-      });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      toast.success("Account created — you're the admin");
-      window.location.href = "/";
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Could not create account");
-      setBusy(false);
-    }
-  };
-
-  const submit = needsSetup ? createFirst : signIn;
   const canSubmit =
     username.trim().length > 0 &&
     password.length > 0 &&
     (!needsSetup || (password.length >= 8 && (!needsToken || token.trim().length > 0)));
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-6">
-      <div className="w-full max-w-2xl space-y-8">
-        {/* Wordmark */}
-        <div className="text-center space-y-3">
-          <div className="inline-flex items-center gap-2.5">
-            <span className="h-11 w-11 rounded-2xl bg-[oklch(0.75_0.15_270_/_15%)] flex items-center justify-center">
-              <Zap className="h-6 w-6 text-[oklch(0.75_0.15_270)]" />
-            </span>
-            <span className="text-4xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
-              OneUp
-            </span>
+    <main className="grid min-h-[100dvh] w-full lg:grid-cols-[1.05fr_1fr]">
+      {/* Brand panel — ink ground, orange glow. Hidden on small screens. */}
+      <section className="brand-panel relative hidden overflow-hidden bg-[#01171e] px-14 py-12 text-white lg:flex lg:flex-col">
+        <div className="brand-glow" aria-hidden="true" />
+        <div className="relative z-10 flex h-full flex-col">
+          <Wordmark label="Studio" tone="dark" />
+
+          <div className="mt-auto max-w-md">
+            <h1 className="text-4xl font-semibold leading-[1.08] tracking-tight text-white">
+              Research, create and ship in one place.
+            </h1>
+            <p className="mt-5 max-w-sm font-raleway text-[0.975rem] leading-relaxed text-white/65">
+              {"OneUp Media's content studio: daily trend research, AI production for every model, and review before anything goes out."}
+            </p>
+
+            <ul className="mt-9 flex flex-col gap-3.5 text-sm text-white/75">
+              <li className="flex items-center gap-3">
+                <ChartLineUpIcon weight="bold" className="size-4 text-brand" />
+                Daily trends, tasks and approvals
+              </li>
+              <li className="flex items-center gap-3">
+                <ShieldCheckIcon weight="bold" className="size-4 text-brand" />
+                Secure, role-based access
+              </li>
+            </ul>
           </div>
-          <p className="text-sm text-muted-foreground">
-            {needsSetup
-              ? "First run — create the founding admin account."
-              : picked
-                ? `Signing in as ${ROLES.find((r) => r.key === picked)!.label}`
-                : "Welcome. Choose your role to sign in."}
+
+          <p className="relative z-10 mt-12 text-xs text-white/40">
+            OneUp Media · internal content studio
           </p>
         </div>
+      </section>
 
-        {needsSetup === null ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : !picked && !needsSetup ? (
-          // ── Role picker ──
-          <div className="grid sm:grid-cols-2 gap-3">
-            {ROLES.map((r) => {
-              const Icon = r.icon;
-              return (
-                <button
-                  key={r.key}
-                  onClick={() => setPicked(r.key)}
-                  className="glass hover:bg-white/5 rounded-2xl p-4 text-left transition-all group"
-                >
-                  <span className="flex items-center gap-3">
-                    <span className="h-9 w-9 rounded-xl bg-white/5 flex items-center justify-center group-hover:bg-[oklch(0.75_0.15_270_/_15%)] transition-colors">
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <span>
-                      <span className="block text-sm font-medium">{r.label}</span>
-                      <span className="block text-[11px] text-muted-foreground">
-                        {r.blurb}
-                      </span>
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          // ── Credentials ──
-          <div className="glass-strong rounded-2xl p-6 space-y-4 max-w-md mx-auto">
-            {needsSetup && needsToken && (
-              <div className="space-y-2">
-                <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Setup code
-                </label>
-                <Input
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  placeholder="from SETUP_TOKEN"
-                  className="glass border-white/10"
-                />
-              </div>
-            )}
-
-            {needsSetup && (
-              <div className="space-y-2">
-                <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Your name
-                </label>
-                <Input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Rayen"
-                  className="glass border-white/10"
-                />
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Username
-              </label>
-              <Input
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                autoComplete="username"
-                className="glass border-white/10"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Password
-              </label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && canSubmit && submit()}
-                autoComplete={needsSetup ? "new-password" : "current-password"}
-                className="glass border-white/10"
-              />
-              {needsSetup && (
-                <p className="text-[10px] text-muted-foreground">
-                  At least 8 characters.
-                </p>
-              )}
-            </div>
-
-            <Button
-              onClick={submit}
-              disabled={busy || !canSubmit}
-              className="w-full rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
-            >
-              {busy ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <LogIn className="h-4 w-4" />
-              )}
-              {needsSetup ? "Create account" : "Sign in"}
-            </Button>
-
-            {!needsSetup && (
-              <button
-                onClick={() => setPicked(null)}
-                className="w-full text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center justify-center gap-1"
-              >
-                <ArrowLeft className="h-3 w-3" /> Pick a different role
-              </button>
-            )}
-
-            <p className="text-[10px] text-muted-foreground text-center pt-1">
+      {/* Form panel */}
+      <section className="flex flex-col items-center justify-center px-6 py-12 sm:px-12">
+        <div className="w-full max-w-sm">
+          <div className="mb-9">
+            <Wordmark label="Studio" tone="light" className="text-2xl lg:hidden" />
+            <h2 className="mt-6 text-2xl font-semibold tracking-tight lg:mt-0">
+              {needsSetup ? "Create the admin account" : "Sign in"}
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
               {needsSetup
-                ? "This account gets admin access and can create everyone else."
-                : "Your role comes from your account — an admin sets it."}
+                ? "First run. This account can create everyone else."
+                : "Use the account your team lead set up for you."}
             </p>
           </div>
-        )}
-      </div>
-    </div>
+
+          {needsSetup === null ? (
+            <div className="flex justify-center py-12">
+              <SpinnerGapIcon className="size-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <form onSubmit={submit} className="flex flex-col gap-5">
+              {needsSetup && needsToken && (
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="token">Setup code</Label>
+                  <Input
+                    id="token"
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    placeholder="from SETUP_TOKEN"
+                    className="h-11"
+                  />
+                </div>
+              )}
+
+              {needsSetup && (
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="name">Your name</Label>
+                  <Input
+                    id="name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="e.g. Rayen"
+                    className="h-11"
+                  />
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="username">Username</Label>
+                <Input
+                  id="username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  autoComplete="username"
+                  placeholder="Your username"
+                  required
+                  className="h-11"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete={needsSetup ? "new-password" : "current-password"}
+                  placeholder={needsSetup ? "At least 8 characters" : "Your password"}
+                  required
+                  className="h-11"
+                />
+              </div>
+
+              {error ? (
+                <p
+                  role="alert"
+                  className="flex items-center gap-2 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
+                >
+                  <WarningCircleIcon weight="fill" className="size-4 shrink-0" />
+                  {error}
+                </p>
+              ) : null}
+
+              <Button
+                type="submit"
+                disabled={busy || !canSubmit}
+                className="mt-1 h-11 w-full text-[0.95rem] font-semibold transition-transform active:scale-[0.99]"
+              >
+                {busy ? (
+                  <>
+                    <SpinnerGapIcon className="size-4 animate-spin" />
+                    {needsSetup ? "Creating…" : "Signing in…"}
+                  </>
+                ) : needsSetup ? (
+                  "Create account"
+                ) : (
+                  "Sign in"
+                )}
+              </Button>
+            </form>
+          )}
+
+          <p className="mt-8 text-xs leading-relaxed text-muted-foreground">
+            Access is limited to OneUp Media staff. Your role comes from your account, and only an
+            admin can change it.
+          </p>
+        </div>
+      </section>
+    </main>
   );
 }
 
@@ -274,7 +222,7 @@ export default function LoginPage() {
     <Suspense
       fallback={
         <div className="min-h-screen flex items-center justify-center">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          <SpinnerGapIcon className="size-5 animate-spin text-muted-foreground" />
         </div>
       }
     >

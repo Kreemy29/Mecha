@@ -494,7 +494,7 @@ export default function ImagesPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
+        <h2 className="text-2xl font-semibold tracking-tight">
           Image Generation
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
@@ -543,7 +543,7 @@ export default function ImagesPage() {
               {characters.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
                   No characters yet.{" "}
-                  <a href="/characters" className="text-[oklch(0.85_0.12_270)] hover:underline">
+                  <a href="/characters" className="text-brand hover:underline">
                     Create one first
                   </a>
                 </p>
@@ -560,7 +560,7 @@ export default function ImagesPage() {
                       onClick={() => setSelectedCharacter(c)}
                       className={`w-full text-left p-3 rounded-xl transition-all flex gap-3 items-center ${
                         selectedCharacter?.id === c.id
-                          ? "glass-strong border-[oklch(0.75_0.15_270_/_30%)]"
+                          ? "glass-strong border-brand/30"
                           : "glass hover:bg-white/5"
                       }`}
                     >
@@ -595,7 +595,7 @@ export default function ImagesPage() {
               {presets.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
                   No active presets.{" "}
-                  <a href="/presets" className="text-[oklch(0.85_0.12_270)] hover:underline">
+                  <a href="/presets" className="text-brand hover:underline">
                     Create or seed presets
                   </a>
                 </p>
@@ -606,7 +606,7 @@ export default function ImagesPage() {
                     onClick={() => setSelectedPreset(p)}
                     className={`w-full text-left p-3 rounded-xl transition-all ${
                       selectedPreset?.id === p.id
-                        ? "glass-strong border-[oklch(0.75_0.15_270_/_30%)]"
+                        ? "glass-strong border-brand/30"
                         : "glass hover:bg-white/5"
                     }`}
                   >
@@ -645,7 +645,7 @@ export default function ImagesPage() {
                         }}
                         className={`text-left p-3 rounded-xl transition-all min-w-[200px] flex-1 max-w-[300px] ${
                           isSelected
-                            ? "glass-strong border-[oklch(0.75_0.15_270_/_30%)]"
+                            ? "glass-strong border-brand/30"
                             : "glass hover:bg-white/5"
                         }`}
                       >
@@ -681,7 +681,7 @@ export default function ImagesPage() {
                 handleGeneratePrompts();
                 setStep("prompts");
               }}
-              className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+              className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
             >
               Next: Search Query
               <Wand2 className="h-4 w-4" />
@@ -700,7 +700,7 @@ export default function ImagesPage() {
                 onClick={handleGeneratePrompts}
                 disabled={loadingPrompts}
                 size="sm"
-                className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+                className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
               >
                 <Search className="h-4 w-4" />
                 {searchPrompts.length > 0 ? "Reload from preset" : "Load preset query"}
@@ -753,7 +753,7 @@ export default function ImagesPage() {
               <div className="flex justify-end pt-2">
                 <Button
                   onClick={() => setStep("references")}
-                  className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+                  className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
                 >
                   Next: Fetch References
                   <Search className="h-4 w-4" />
@@ -812,7 +812,7 @@ export default function ImagesPage() {
                     className={
                       pinterestResults.length > 0
                         ? "rounded-xl border-white/10 gap-2"
-                        : "rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+                        : "rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
                     }
                   >
                     {loadingRefs ? (
@@ -841,7 +841,7 @@ export default function ImagesPage() {
                       onClick={() => refFileInputRef.current?.click()}
                       disabled={uploading}
                       size="sm"
-                      className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+                      className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
                     >
                       {uploading ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -857,7 +857,7 @@ export default function ImagesPage() {
                   <Button
                     onClick={() => setStep("recreation")}
                     size="sm"
-                    className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+                    className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
                   >
                     Use {selectedRefs.size} Selected
                     <CheckSquare className="h-4 w-4" />
@@ -881,7 +881,7 @@ export default function ImagesPage() {
                     onClick={() => toggleRef(i)}
                     className={`relative rounded-xl overflow-hidden border-2 transition-all aspect-square group ${
                       selectedRefs.has(i)
-                        ? "border-[oklch(0.75_0.15_270)] shadow-lg shadow-[oklch(0.75_0.15_270_/_20%)]"
+                        ? "border-brand shadow-lg shadow-brand/20"
                         : "border-transparent hover:border-white/20"
                     }`}
                   >
@@ -894,14 +894,14 @@ export default function ImagesPage() {
                     <div
                       className={`absolute inset-0 transition-all ${
                         selectedRefs.has(i)
-                          ? "bg-[oklch(0.75_0.15_270_/_20%)]"
+                          ? "bg-brand/20"
                           : "bg-black/0 group-hover:bg-black/20"
                       }`}
                     />
                     <div className="absolute top-2 right-2">
                       <Checkbox
                         checked={selectedRefs.has(i)}
-                        className="border-white/50 data-[state=checked]:bg-[oklch(0.75_0.15_270)] data-[state=checked]:border-[oklch(0.75_0.15_270)]"
+                        className="border-white/50 data-[state=checked]:bg-brand data-[state=checked]:border-brand"
                       />
                     </div>
                     {ref.title && (
@@ -931,7 +931,7 @@ export default function ImagesPage() {
                     onClick={handleWriteRecreation}
                     disabled={loadingRecreation}
                     size="sm"
-                    className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+                    className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
                   >
                     {loadingRecreation ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -1039,7 +1039,7 @@ export default function ImagesPage() {
                   succeeded: { color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
                   failed: { color: "bg-red-500/10 text-red-400 border-red-500/20" },
                   filtered: { color: "bg-orange-500/10 text-orange-400 border-orange-500/20" },
-                  rejected: { color: "bg-violet-500/10 text-violet-400 border-violet-500/20" },
+                  rejected: { color: "bg-brand/10 text-brand border-brand/20" },
                 };
                 return (
                   <div key={job.id} className="p-4 rounded-xl glass space-y-3">
@@ -1134,7 +1134,7 @@ export default function ImagesPage() {
                         Approved
                       </Badge>
                     ) : job.status === "rejected" ? (
-                      <Badge className="text-xs bg-violet-500/10 text-violet-400 border-violet-500/20 border gap-1">
+                      <Badge className="text-xs bg-brand/10 text-brand border-brand/20 border gap-1">
                         <RotateCcw className="h-3 w-3" />
                         Redoing
                       </Badge>
@@ -1182,8 +1182,8 @@ export default function ImagesPage() {
                           (h) => (h as Record<string, unknown>).rejectionNote
                         ) as { rejectionNote?: string } | undefined;
                       return note?.rejectionNote ? (
-                        <div className="rounded-lg bg-violet-500/5 border border-violet-500/15 p-2">
-                          <p className="text-[10px] uppercase tracking-wider text-violet-400/80 mb-1 flex items-center gap-1">
+                        <div className="rounded-lg bg-brand/5 border border-brand/15 p-2">
+                          <p className="text-[10px] uppercase tracking-wider text-brand/80 mb-1 flex items-center gap-1">
                             <RotateCcw className="h-3 w-3" />
                             Rejected — regenerating
                           </p>
@@ -1342,7 +1342,7 @@ function GenerationControlsBar({
         onClick={() => cycle(qualityOptions, quality, setQuality)}
         className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-white/5 transition-colors text-sm"
       >
-        <Gem className="h-4 w-4 text-[oklch(0.85_0.12_270)]" />
+        <Gem className="h-4 w-4 text-brand" />
         <span className="font-medium">{quality}</span>
       </button>
 
@@ -1364,7 +1364,7 @@ function GenerationControlsBar({
         onClick={() => setEnhance(!enhance)}
         className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-colors text-sm ${
           enhance
-            ? "bg-[oklch(0.75_0.15_270_/_15%)] text-[oklch(0.85_0.12_270)]"
+            ? "bg-brand/15 text-brand"
             : "hover:bg-white/5 text-muted-foreground"
         }`}
       >

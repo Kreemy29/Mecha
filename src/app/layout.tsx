@@ -1,28 +1,38 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Inter_Tight, Raleway, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppShell } from "@/components/layout/app-shell";
 import "./globals.css";
 
-const inter = Inter({
-  variable: "--font-inter",
+// Brand type (same as OneUp Insights): Inter Tight (headings + UI), Raleway
+// (marketing prose), Geist Mono (numbers).
+const interTight = Inter_Tight({
+  variable: "--font-inter-tight",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
 });
 
-const jetbrainsMono = JetBrains_Mono({
+const raleway = Raleway({
+  variable: "--font-raleway-src",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+});
+
+const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
 
 export const metadata: Metadata = {
-  title: "OneUp",
-  description: "AI UGC Content Automation Tool",
+  title: "OneUp Studio: OneUp Media content studio",
+  description: "AI UGC production for OneUp Media: research, generation and review in one place.",
+  icons: { icon: "/brand/oneup-logo.png" },
 };
 
 export const viewport = {
   colorScheme: "dark" as const,
-  themeColor: "#131318",
+  themeColor: "#0a1418",
 };
 
 export default function RootLayout({
@@ -33,16 +43,13 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased dark`}
+      className={`${interTight.variable} ${raleway.variable} ${geistMono.variable} h-full antialiased dark`}
     >
-      <body
-        className="min-h-screen bg-background text-foreground"
-        suppressHydrationWarning
-      >
+      <body className="min-h-full flex flex-col font-sans" suppressHydrationWarning>
         <TooltipProvider>
           <AppShell>{children}</AppShell>
         </TooltipProvider>
-        <Toaster />
+        <Toaster position="top-right" richColors />
       </body>
     </html>
   );

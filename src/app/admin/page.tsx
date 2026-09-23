@@ -7,15 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Shield, Loader2, Trash2, UserPlus, KeyRound } from "lucide-react";
+import { ROLES as ROLE_KEYS, ROLE_LABEL, type Role } from "@/lib/roles";
 
-type Role = "owner" | "ai_artist" | "meta_ads" | "marketing_manager";
-
-const ROLES: { key: Role; label: string }[] = [
-  { key: "owner", label: "Owner" },
-  { key: "ai_artist", label: "AI Artist" },
-  { key: "meta_ads", label: "Meta Ads" },
-  { key: "marketing_manager", label: "Marketing Manager" },
-];
+const ROLES: { key: Role; label: string }[] = ROLE_KEYS.map((key) => ({
+  key,
+  label: ROLE_LABEL[key],
+}));
 
 interface User {
   id: number;
@@ -34,7 +31,7 @@ export default function AdminPage() {
 
   const [username, setUsername] = useState("");
   const [name, setName] = useState("");
-  const [role, setRole] = useState<Role>("ai_artist");
+  const [role, setRole] = useState<Role>("content_creator");
   const [password, setPassword] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
 
@@ -144,7 +141,7 @@ export default function AdminPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
+        <h2 className="text-2xl font-semibold tracking-tight">
           Accounts
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
@@ -176,7 +173,7 @@ export default function AdminPage() {
               className="w-full glass border border-white/10 rounded-md h-9 px-2 text-sm bg-transparent"
             >
               {ROLES.map((r) => (
-                <option key={r.key} value={r.key} className="bg-neutral-900">
+                <option key={r.key} value={r.key} className="bg-card">
                   {r.label}
                 </option>
               ))}
@@ -195,14 +192,14 @@ export default function AdminPage() {
                 type="checkbox"
                 checked={isAdmin}
                 onChange={(e) => setIsAdmin(e.target.checked)}
-                className="accent-[oklch(0.75_0.15_270)]"
+                className="accent-brand"
               />
               Admin — can manage accounts
             </label>
             <Button
               onClick={create}
               disabled={busy || !username.trim() || password.length < 8}
-              className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+              className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
             >
               {busy ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -238,7 +235,7 @@ export default function AdminPage() {
                 className="glass border border-white/10 rounded-md h-8 px-2 text-xs bg-transparent"
               >
                 {ROLES.map((r) => (
-                  <option key={r.key} value={r.key} className="bg-neutral-900">
+                  <option key={r.key} value={r.key} className="bg-card">
                     {r.label}
                   </option>
                 ))}
@@ -248,7 +245,7 @@ export default function AdminPage() {
                   type="checkbox"
                   checked={u.isAdmin}
                   onChange={(e) => patch(u.id, { isAdmin: e.target.checked })}
-                  className="accent-[oklch(0.75_0.15_270)]"
+                  className="accent-brand"
                 />
                 admin
               </label>

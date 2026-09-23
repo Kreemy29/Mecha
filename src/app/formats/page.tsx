@@ -451,7 +451,7 @@ export default function FormatsPage() {
   };
 
   return (
-    <div className="flex h-screen pt-20">
+    <div className="flex h-[calc(100dvh-11rem)] glass rounded-xl overflow-hidden">
       {/* Weeks */}
       <div className="w-56 shrink-0 border-r border-white/10 overflow-y-auto p-3 space-y-2">
         <h2 className="text-sm font-semibold px-1 pb-2">Formats</h2>
@@ -470,7 +470,7 @@ export default function FormatsPage() {
               className={cn(
                 "group flex items-center gap-1 rounded-lg",
                 selectedWeekId === w.id
-                  ? "bg-[oklch(0.75_0.15_270_/_15%)]"
+                  ? "bg-brand/15"
                   : "hover:bg-white/5"
               )}
             >
@@ -536,7 +536,7 @@ export default function FormatsPage() {
           <DialogFooter>
             <Button
               onClick={createWeek}
-              className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white"
+              className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground"
             >
               Create
             </Button>
@@ -611,7 +611,7 @@ export default function FormatsPage() {
                             className={cn(
                               "relative aspect-[9/16] rounded-lg overflow-hidden border-2 bg-white/5 transition-colors",
                               isSelected
-                                ? "border-[oklch(0.75_0.15_270)]"
+                                ? "border-brand"
                                 : "border-transparent hover:border-white/20"
                             )}
                           >
@@ -629,7 +629,7 @@ export default function FormatsPage() {
                             )}
                             {isSelected && (
                               <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
-                                <CheckCircle2 className="h-5 w-5 text-[oklch(0.85_0.12_270)]" />
+                                <CheckCircle2 className="h-5 w-5 text-brand" />
                               </div>
                             )}
                           </button>
@@ -682,7 +682,7 @@ export default function FormatsPage() {
                     size="sm"
                     onClick={addFormat}
                     disabled={saving}
-                    className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-1.5 text-xs"
+                    className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-1.5 text-xs"
                   >
                     {saving ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -744,7 +744,7 @@ export default function FormatsPage() {
                           href={f.sourceUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-[10px] text-[oklch(0.85_0.12_270)] hover:underline inline-flex items-center gap-1"
+                          className="text-[10px] text-brand hover:underline inline-flex items-center gap-1"
                         >
                           <ExternalLink className="h-2.5 w-2.5" /> Instagram
                         </a>
@@ -754,7 +754,7 @@ export default function FormatsPage() {
                       <div className="border-t border-white/5 pt-2">
                         {method ? (
                           <div className="flex items-center gap-1.5 text-[10px]">
-                            <Sparkles className="h-3 w-3 text-[oklch(0.85_0.12_270)] shrink-0" />
+                            <Sparkles className="h-3 w-3 text-brand shrink-0" />
                             <span className="truncate flex-1" title={method.prompt}>
                               {method.model}: {method.prompt.slice(0, 40)}
                             </span>
@@ -832,7 +832,7 @@ export default function FormatsPage() {
                             />
                             <button
                               onClick={() => addAssignment(f.id)}
-                              className="text-[oklch(0.85_0.12_270)] hover:opacity-80"
+                              className="text-brand hover:opacity-80"
                             >
                               <Plus className="h-3.5 w-3.5" />
                             </button>
@@ -880,7 +880,7 @@ export default function FormatsPage() {
                               <button
                                 onClick={() => postComment(f.id)}
                                 disabled={postingComment}
-                                className="text-[oklch(0.85_0.12_270)] hover:opacity-80 disabled:opacity-40"
+                                className="text-brand hover:opacity-80 disabled:opacity-40"
                               >
                                 <Send className="h-3.5 w-3.5" />
                               </button>

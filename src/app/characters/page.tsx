@@ -127,7 +127,7 @@ export default function CharactersPage() {
     <div className="space-y-8">
       <div className="flex items-end justify-between">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
+          <h2 className="text-2xl font-semibold tracking-tight">
             Characters
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
@@ -143,7 +143,7 @@ export default function CharactersPage() {
                 <Button
                   onClick={openCreate}
                   size="sm"
-                  className="glass-strong border-white/10 bg-[oklch(0.75_0.15_270_/_10%)] hover:bg-[oklch(0.75_0.15_270_/_20%)] text-foreground gap-2 rounded-xl"
+                  className="glass-strong border-white/10 bg-brand/10 hover:bg-brand/20 text-foreground gap-2 rounded-xl"
                 />
               }
             >
@@ -214,7 +214,7 @@ export default function CharactersPage() {
                 </Button>
                 <Button
                   onClick={handleSave}
-                  className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white"
+                  className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground"
                 >
                   {editingId ? "Update" : "Create"}
                 </Button>
@@ -248,7 +248,7 @@ export default function CharactersPage() {
             <Button
               onClick={openCreate}
               size="sm"
-              className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+              className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
             >
               <Plus className="h-4 w-4" />
               Create Character
@@ -457,7 +457,7 @@ function AiCharacterCreator({ onCreated }: { onCreated: () => void }) {
           <Button
             size="sm"
             variant="outline"
-            className="rounded-xl border-white/10 gap-2 text-[oklch(0.85_0.12_270)]"
+            className="rounded-xl border-white/10 gap-2 text-brand"
           />
         }
       >
@@ -467,7 +467,7 @@ function AiCharacterCreator({ onCreated }: { onCreated: () => void }) {
       <DialogContent className="glass-strong border-white/10 sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Wand2 className="h-4 w-4 text-[oklch(0.85_0.12_270)]" />
+            <Wand2 className="h-4 w-4 text-brand" />
             AI Character Creator
           </DialogTitle>
         </DialogHeader>
@@ -512,7 +512,7 @@ function AiCharacterCreator({ onCreated }: { onCreated: () => void }) {
             <Button
               onClick={handleGenerate}
               disabled={generating || images.length < 2}
-              className="w-full rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+              className="w-full rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
             >
               {generating ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -567,7 +567,7 @@ function AiCharacterCreator({ onCreated }: { onCreated: () => void }) {
                 <Button
                   onClick={handleSave}
                   disabled={saving}
-                  className="flex-1 rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+                  className="flex-1 rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
                 >
                   {saving ? (
                     <Loader2 className="h-4 w-4 animate-spin" />

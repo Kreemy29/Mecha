@@ -152,9 +152,9 @@ export const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   username: text("username").notNull().unique(),
   name: text("name").notNull(),
-  role: text("role", {
-    enum: ["owner", "ai_artist", "meta_ads", "marketing_manager"],
-  }).notNull(),
+  // Values come from ROLES in lib/roles.ts (plain TEXT column, so adding a
+  // role there needs no migration).
+  role: text("role").notNull(),
   passwordHash: text("password_hash").notNull(),
   passwordSalt: text("password_salt").notNull(),
   isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),

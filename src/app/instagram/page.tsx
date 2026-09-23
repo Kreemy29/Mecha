@@ -561,10 +561,10 @@ export default function InstagramPage() {
   return (
     <div className="flex gap-6 items-start">
       {/* ── Left rail: saved models ── */}
-      <aside className="w-64 shrink-0 space-y-3 sticky top-24">
+      <aside className="w-64 shrink-0 space-y-3 sticky top-32">
         <div>
           <h2 className="text-xl font-bold tracking-tight flex items-center gap-2">
-            <InstagramIcon className="h-5 w-5 text-[oklch(0.75_0.15_270)]" />
+            <InstagramIcon className="h-5 w-5 text-brand" />
             Models
           </h2>
           <p className="text-xs text-muted-foreground mt-1">
@@ -646,12 +646,12 @@ export default function InstagramPage() {
           className={cn(
             "w-full flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all text-left",
             mode === "library" && scope.kind === "all"
-              ? "glass-strong bg-[oklch(0.75_0.15_270_/_12%)]"
+              ? "glass-strong bg-brand/12"
               : "glass hover:bg-white/5"
           )}
         >
-          <div className="h-9 w-9 rounded-lg bg-[oklch(0.75_0.15_270_/_15%)] flex items-center justify-center shrink-0">
-            <BookmarkCheck className="h-4 w-4 text-[oklch(0.85_0.12_270)]" />
+          <div className="h-9 w-9 rounded-lg bg-brand/15 flex items-center justify-center shrink-0">
+            <BookmarkCheck className="h-4 w-4 text-brand" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">Saved videos</p>
@@ -672,7 +672,7 @@ export default function InstagramPage() {
               className={cn(
                 "flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium capitalize transition-colors",
                 groupBy === g
-                  ? "bg-[oklch(0.75_0.15_270_/_15%)] text-[oklch(0.85_0.12_270)]"
+                  ? "bg-brand/15 text-brand"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
@@ -725,7 +725,7 @@ export default function InstagramPage() {
                           ? "text-white"
                           : groupName === UNASSIGNED
                             ? "text-muted-foreground/60"
-                            : "text-[oklch(0.85_0.12_270)]"
+                            : "text-brand"
                       )}
                     >
                       {groupName}
@@ -744,7 +744,7 @@ export default function InstagramPage() {
                       className={cn(
                         "shrink-0 transition-all",
                         scoped
-                          ? "text-[oklch(0.85_0.12_270)]"
+                          ? "text-brand"
                           : "text-muted-foreground opacity-0 group-hover/hdr:opacity-100 hover:text-foreground"
                       )}
                       title={`Saved videos for ${groupName}`}
@@ -766,7 +766,7 @@ export default function InstagramPage() {
                       className={cn(
                         "group flex items-center gap-3 rounded-xl px-3 py-2.5 cursor-pointer transition-all ml-2",
                         selected?.id === a.id
-                          ? "glass-strong bg-[oklch(0.75_0.15_270_/_12%)]"
+                          ? "glass-strong bg-brand/12"
                           : "glass hover:bg-white/5"
                       )}
                     >
@@ -828,8 +828,8 @@ export default function InstagramPage() {
         {mode === "library" ? (
           <>
             <div className="glass rounded-2xl p-5 flex items-center gap-4">
-              <div className="h-14 w-14 rounded-xl bg-[oklch(0.75_0.15_270_/_15%)] flex items-center justify-center shrink-0">
-                <BookmarkCheck className="h-7 w-7 text-[oklch(0.85_0.12_270)]" />
+              <div className="h-14 w-14 rounded-xl bg-brand/15 flex items-center justify-center shrink-0">
+                <BookmarkCheck className="h-7 w-7 text-brand" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -837,7 +837,7 @@ export default function InstagramPage() {
                     Saved videos
                   </h2>
                   {scope.kind !== "all" && (
-                    <Badge className="bg-[oklch(0.75_0.15_270_/_25%)] border-white/20 text-white gap-1">
+                    <Badge className="bg-brand/25 border-white/20 text-white gap-1">
                       {scope.kind === "model" ? (
                         <Users className="h-3 w-3" />
                       ) : (
@@ -965,7 +965,7 @@ export default function InstagramPage() {
                   className={cn(
                     "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
                     tab === "reels"
-                      ? "bg-[oklch(0.75_0.15_270_/_15%)] text-[oklch(0.85_0.12_270)]"
+                      ? "bg-brand/15 text-brand"
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
@@ -976,7 +976,7 @@ export default function InstagramPage() {
                   className={cn(
                     "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
                     tab === "saved"
-                      ? "bg-[oklch(0.75_0.15_270_/_15%)] text-[oklch(0.85_0.12_270)]"
+                      ? "bg-brand/15 text-brand"
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
@@ -1103,7 +1103,7 @@ export default function InstagramPage() {
                     className={cn(
                       "flex-1 text-left p-2.5 rounded-xl text-xs font-medium transition-all",
                       assignQueue === q
-                        ? "glass-strong border-[oklch(0.75_0.15_270_/_30%)]"
+                        ? "glass-strong border-brand/30"
                         : "glass hover:bg-white/5 text-muted-foreground"
                     )}
                   >
@@ -1138,7 +1138,7 @@ export default function InstagramPage() {
                 >
                   <option value="">- none -</option>
                   {options.models.map((m) => (
-                    <option key={m} value={m} className="bg-neutral-900">
+                    <option key={m} value={m} className="bg-card">
                       {m}
                     </option>
                   ))}
@@ -1157,7 +1157,7 @@ export default function InstagramPage() {
                 >
                   <option value="">- none -</option>
                   {formats.map((f) => (
-                    <option key={f.id} value={f.id} className="bg-neutral-900">
+                    <option key={f.id} value={f.id} className="bg-card">
                       {f.name}
                     </option>
                   ))}
@@ -1176,7 +1176,7 @@ export default function InstagramPage() {
               <Button
                 onClick={submitAssign}
                 disabled={assigning}
-                className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+                className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
               >
                 {assigning ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -1245,7 +1245,7 @@ function TagField({
               type="button"
               onClick={() => toggle(value)}
               disabled={disabled}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-[oklch(0.75_0.15_270_/_25%)] border border-white/20 text-white max-w-full"
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-brand/25 border border-white/20 text-white max-w-full"
               title="Remove"
             >
               <span className="truncate">{value}</span>
@@ -1423,7 +1423,7 @@ function ReelCard({
           className={cn(
             "h-8 w-8 rounded-lg flex items-center justify-center backdrop-blur transition-colors",
             saved
-              ? "bg-[oklch(0.75_0.15_270_/_35%)] text-white"
+              ? "bg-brand/35 text-white"
               : "bg-black/50 text-white/70 hover:text-white"
           )}
           title={saved ? "Remove from saved" : "Save"}
@@ -1460,7 +1460,7 @@ function ReelCard({
               <Button
                 size="sm"
                 disabled={!!busy}
-                className="w-full h-8 text-xs bg-[oklch(0.75_0.15_270_/_25%)] hover:bg-[oklch(0.75_0.15_270_/_40%)] text-white border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="w-full h-8 text-xs bg-brand/25 hover:bg-brand/40 text-white border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
               />
             }
           >

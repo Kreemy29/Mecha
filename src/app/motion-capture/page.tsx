@@ -96,7 +96,7 @@ const statusColor: Record<string, string> = {
   succeeded: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
   failed: "bg-red-500/10 text-red-400 border-red-500/20",
   filtered: "bg-orange-500/10 text-orange-400 border-orange-500/20",
-  rejected: "bg-violet-500/10 text-violet-400 border-violet-500/20",
+  rejected: "bg-brand/10 text-brand border-brand/20",
 };
 
 export default function MotionCapturePage() {
@@ -498,7 +498,7 @@ export default function MotionCapturePage() {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
+        <h2 className="text-2xl font-semibold tracking-tight">
           Motion Control — Batch
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
@@ -547,7 +547,7 @@ export default function MotionCapturePage() {
               {characters.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
                   No characters yet.{" "}
-                  <a href="/characters" className="text-[oklch(0.85_0.12_270)] hover:underline">
+                  <a href="/characters" className="text-brand hover:underline">
                     Create one first
                   </a>
                 </p>
@@ -560,7 +560,7 @@ export default function MotionCapturePage() {
                       onClick={() => setSelectedCharacter(c)}
                       className={`w-full text-left p-3 rounded-xl transition-all flex gap-3 items-center ${
                         selectedCharacter?.id === c.id
-                          ? "glass-strong border-[oklch(0.75_0.15_270_/_30%)]"
+                          ? "glass-strong border-brand/30"
                           : "glass hover:bg-white/5"
                       }`}
                     >
@@ -602,7 +602,7 @@ export default function MotionCapturePage() {
                         }}
                         className={`text-left p-3 rounded-xl transition-all min-w-[150px] flex-1 ${
                           sel
-                            ? "glass-strong border-[oklch(0.75_0.15_270_/_30%)]"
+                            ? "glass-strong border-brand/30"
                             : "glass hover:bg-white/5"
                         }`}
                       >
@@ -648,7 +648,7 @@ export default function MotionCapturePage() {
                     onClick={() => setAnimateEngine(e.id)}
                     className={`text-left p-3 rounded-xl transition-all min-w-[190px] flex-1 ${
                       animateEngine === e.id
-                        ? "glass-strong border-[oklch(0.75_0.15_270_/_30%)]"
+                        ? "glass-strong border-brand/30"
                         : "glass hover:bg-white/5"
                     }`}
                   >
@@ -669,7 +669,7 @@ export default function MotionCapturePage() {
                       onClick={() => setKlingResolution(r)}
                       className={`px-2.5 py-1 rounded-lg text-xs border transition-colors ${
                         klingResolution === r
-                          ? "bg-[oklch(0.75_0.15_270_/_20%)] border-white/20"
+                          ? "bg-brand/20 border-white/20"
                           : "glass border-white/10 hover:bg-white/5"
                       }`}
                     >
@@ -696,7 +696,7 @@ export default function MotionCapturePage() {
             <Button
               disabled={!canProceedSetup}
               onClick={() => setStep("videos")}
-              className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+              className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
             >
               Next: Add Videos
               <Film className="h-4 w-4" />
@@ -719,7 +719,7 @@ export default function MotionCapturePage() {
               {videos.length > 0 && (
                 <Button
                   onClick={() => setStep("work")}
-                  className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+                  className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
                 >
                   Next: Frames &amp; Stills ({videos.length})
                   <Sparkles className="h-4 w-4" />
@@ -763,7 +763,7 @@ export default function MotionCapturePage() {
               <Button
                 onClick={handleAddReel}
                 disabled={intaking || !reelUrl.trim()}
-                className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+                className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
               >
                 {intaking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                 Add
@@ -868,7 +868,7 @@ export default function MotionCapturePage() {
                       <a
                         href={fileUrl(v.animateJob!.outputPath)}
                         download={`mecha-animate-${v.animateJob!.id}.mp4`}
-                        className="inline-flex items-center gap-2 text-xs text-[oklch(0.85_0.12_270)] hover:underline"
+                        className="inline-flex items-center gap-2 text-xs text-brand hover:underline"
                       >
                         <Download className="h-3.5 w-3.5" /> Download
                       </a>
@@ -1003,7 +1003,7 @@ function VideoWorkCard({
                     onClick={() => onSelectFrame(i)}
                     className={`relative aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all ${
                       v.selectedFrame === i
-                        ? "border-[oklch(0.75_0.15_270)]"
+                        ? "border-brand"
                         : "border-transparent hover:border-white/20"
                     }`}
                   >
@@ -1027,7 +1027,7 @@ function VideoWorkCard({
                   onClick={onGenerate}
                   disabled={v.writing || stillActive}
                   size="sm"
-                  className="rounded-xl bg-[oklch(0.75_0.15_270)] hover:bg-[oklch(0.7_0.15_270)] text-white gap-2"
+                  className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
                 >
                   {v.writing || stillActive ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                   {v.stillJobs.length ? "Regenerate" : "Recreate Still"}
