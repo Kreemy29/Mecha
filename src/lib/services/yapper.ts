@@ -311,17 +311,36 @@ export function unsaveGeneration(yapperId: string): void {
 export async function saveApiKey(apiKey: string, label?: string): Promise<void> {
   // Validate the key before storing it, same spirit as Higgsfield's connect
   // flow failing loudly on a bad token rather than silently keeping garbage.
-  const res = await fetch(`${API_BASE}/credits`, {
-    headers: { Authorization: `Bearer ${apiKey}` },
+  //
+  // Checked against /processes — the one endpoint this app actually reads —
+  // not /credits: a key without billing access gets 403 on /credits even
+  // though it can list generations fine. (401 = Yapper doesn't know the key;
+  // 403 = it knows it but that key isn't allowed to do this.)
+  const key = apiKey.trim();
+  const res = await fetch(`${API_BASE}/processes?limit=1`, {
+    headers: { Authorization: `Bearer ${key}` },
   });
   if (!res.ok) {
-    throw new Error(`Yapper rejected this API key (${res.status})`);
+    let reason = "";
+    try {
+      const body = (await res.json()) as { error?: { message?: string; code?: string } };
+      reason = body.error?.message || body.error?.code || "";
+    } catch {
+      // not JSON — keep just the status
+    }
+    const meaning =
+      res.status === 401
+        ? "Yapper doesn't recognise this key"
+        : res.status === 403
+          ? "Yapper knows this key but won't let it read generations (check the key's permissions or the team's plan)"
+          : "Yapper rejected this API key";
+    throw new Error(`${meaning} (${res.status}${reason ? `: ${reason}` : ""})`);
   }
-  const id = accountIdForKey(apiKey);
+  const id = accountIdForKey(key);
   const account: YapperAccount = {
     id,
     label: label || `Yapper key (${id.slice(0, 6)})`,
-    apiKey,
+    apiKey: key,
   };
   upsertAccount(account, true);
 }
