@@ -26,8 +26,13 @@ export async function POST(request: NextRequest) {
     // find the app becomes the admin. SETUP_TOKEN closes that window — set it
     // in the host's env and only someone holding it can claim the account.
     // Skipped when unset so local development stays frictionless.
-    const required = process.env.SETUP_TOKEN;
-    if (required && setupCode !== required) {
+    // Normalised on both sides: a stray space/newline or wrapping quotes from
+    // copying the value in or out of the host's dashboard are invisible and
+    // shouldn't lock you out.
+    const clean = (v: unknown) =>
+      String(v ?? "").trim().replace(/^(["'])(.*)\1$/, "$2").trim();
+    const required = process.env.SETUP_TOKEN ? clean(process.env.SETUP_TOKEN) : "";
+    if (required && clean(setupCode) !== required) {
       return NextResponse.json(
         { error: "Wrong setup code" },
         { status: 403 }
