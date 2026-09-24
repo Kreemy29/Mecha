@@ -3,21 +3,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
-  CheckCircle2,
-  ClipboardList,
-  Copy,
-  ExternalLink,
-  Loader2,
-  Send,
-  ThumbsDown,
-  ThumbsUp,
-  Trash2,
-  Wand2,
-} from "lucide-react";
+  CheckCircleIcon,
+  ClipboardTextIcon,
+  CopyIcon,
+  ArrowSquareOutIcon,
+  PaperPlaneTiltIcon,
+  SpinnerGapIcon,
+  ThumbsDownIcon,
+  ThumbsUpIcon,
+  TrashIcon,
+  MagicWandIcon,
+  PlayIcon,
+} from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -35,8 +36,8 @@ import {
   PageHeader,
   StatusBadge,
   WorkBanners,
-  shortLink,
 } from "@/components/department/shared";
+import { ReelPreview } from "@/components/department/reel-preview";
 
 interface Trend {
   id: number;
@@ -49,6 +50,12 @@ interface Trend {
   createdBy: string;
 }
 
+interface MediaRef {
+  role: string;
+  url: string;
+  type?: string;
+}
+
 interface Method {
   service: "higgsfield" | "yapper";
   id: string;
@@ -57,6 +64,7 @@ interface Method {
   prompt: string;
   outputPath: string | null;
   thumbnailPath: string | null;
+  medias: MediaRef[];
 }
 
 interface Item {
@@ -91,6 +99,8 @@ interface Person {
 
 const fileUrl = (p: string) => `/api/files/${p.replace(/\\/g, "/")}`;
 const isDone = (t: Task) => t.items.every((i) => i.status === "approved");
+const isVideoRef = (m: MediaRef) =>
+  (m.type ?? "").includes("video") || /\.(mp4|mov|webm)(\?|$)/i.test(m.url);
 
 async function api(method: string, body?: unknown, query = "") {
   const res = await fetch(`/api/production${query}`, {
@@ -157,6 +167,9 @@ export default function ProductionPage() {
     return [...m.entries()];
   }, [tasks]);
 
+  const openCount = tasks.filter((t) => !isDone(t)).length;
+  const toReview = tasks.reduce((n, t) => n + t.items.filter((i) => i.status === "submitted").length, 0);
+
   const act = async (itemId: number, action: "submit" | "approve" | "reject", extra: Record<string, unknown> = {}) => {
     try {
       await api("PATCH", { itemId, action, ...extra });
@@ -180,6 +193,7 @@ export default function ProductionPage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        eyebrow="Department"
         title="Production"
         subtitle={
           manager
@@ -188,120 +202,124 @@ export default function ProductionPage() {
               ? "Everything in production, and what's been handed in."
               : "Your assigned videos. Make one per model and hand each in as a Drive link."
         }
-      />
+      >
+        {!loading && (
+          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+            <span>
+              <span className="tnum font-semibold text-foreground">{openCount}</span> in progress
+            </span>
+            {manager && (
+              <span>
+                <span className="tnum font-semibold text-chart-2">{toReview}</span> to review
+              </span>
+            )}
+          </div>
+        )}
+      </PageHeader>
 
       <WorkBanners />
 
       {seesAll && (
-        <section className="space-y-3">
-          <h3 className="text-sm font-semibold flex items-center gap-2">
-            <Wand2 className="h-4 w-4 text-brand" />
-            Approved trends waiting for a method
-            <Badge className="bg-white/10 border-0 text-[10px]">{waiting.length}</Badge>
-          </h3>
-          {loading ? (
-            <Skeleton className="h-20 rounded-xl" />
-          ) : waiting.length === 0 ? (
-            <div className="glass rounded-xl p-5 text-sm text-muted-foreground text-center">
-              Nothing waiting. Approved trends from the last 30 days show up here.
-            </div>
-          ) : (
-            <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
-              {waiting.map((t) => (
-                <div key={t.id} className="glass rounded-xl p-3 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-white/10 border-0 text-[10px] capitalize">{t.kind}</Badge>
-                    <span className="text-[11px] text-muted-foreground">{prettyDate(t.date)}</span>
-                    <span className="text-[11px] text-muted-foreground ml-auto">by {t.createdBy}</span>
+        <Card className="gap-0 p-0">
+          <SectionHead Icon={MagicWandIcon} title="Approved trends waiting for a method" count={waiting.length} />
+          <div className="p-4">
+            {loading ? (
+              <Skeleton className="h-40 rounded-xl" />
+            ) : waiting.length === 0 ? (
+              <Empty title="Nothing waiting" hint="Approved trends from the last 30 days show up here." />
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+                {waiting.map((t) => (
+                  <div key={t.id} className="flex gap-3 rounded-xl border border-border bg-background/40 p-3">
+                    <ReelPreview url={t.url} kind={t.kind} className="w-24 shrink-0 self-start" />
+                    <div className="flex min-w-0 flex-1 flex-col gap-2">
+                      <div>
+                        <p className="truncate text-sm font-semibold">{t.niche || "No niche"}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {prettyDate(t.date)} · by {t.createdBy}
+                        </p>
+                      </div>
+                      <p className="line-clamp-3 text-xs text-muted-foreground">{t.justification}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {t.models.map((m) => (
+                          <span key={m} className="rounded-md bg-secondary px-1.5 py-0.5 text-[11px] font-medium">
+                            {m}
+                          </span>
+                        ))}
+                      </div>
+                      {manager && (
+                        <Button
+                          size="sm"
+                          onClick={() => setAssigning(t)}
+                          className="mt-auto self-start bg-brand text-brand-foreground hover:bg-brand/90"
+                        >
+                          Assign
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                  <a
-                    href={t.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-sm font-medium hover:underline flex items-center gap-1.5 min-w-0"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{shortLink(t.url)}</span>
-                  </a>
-                  <p className="text-xs text-muted-foreground line-clamp-2">{t.justification}</p>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {t.models.map((m) => (
-                      <Badge key={m} className="bg-white/10 border-0 text-[10px]">
-                        {m}
-                      </Badge>
-                    ))}
-                    {manager && (
-                      <Button
-                        size="sm"
-                        onClick={() => setAssigning(t)}
-                        className="ml-auto h-7 px-2.5 text-xs rounded-lg bg-brand hover:bg-brand/90 text-brand-foreground"
-                      >
-                        Assign
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+                ))}
+              </div>
+            )}
+          </div>
+        </Card>
       )}
 
-      <section className="space-y-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          <h3 className="text-sm font-semibold flex items-center gap-2">
-            <ClipboardList className="h-4 w-4 text-brand" />
-            {seesAll ? "Tasks" : "My tasks"}
-          </h3>
-          <div className="glass rounded-lg p-0.5 flex text-xs ml-2">
-            {[false, true].map((done) => (
-              <button
-                key={String(done)}
-                onClick={() => setShowDone(done)}
-                className={cn(
-                  "px-2.5 py-1 rounded-md",
-                  showDone === done ? "bg-white/10 text-foreground" : "text-muted-foreground"
-                )}
-              >
-                {done ? "Done" : "In progress"}
-              </button>
-            ))}
-          </div>
-          {seesAll && assignees.length > 1 && (
-            <select
-              value={assignee}
-              onChange={(e) => setAssignee(e.target.value === "all" ? "all" : Number(e.target.value))}
-              className="glass border border-white/10 rounded-lg h-7 px-2 text-xs bg-transparent"
-            >
-              <option value="all" className="bg-card">Everyone</option>
-              {assignees.map(([id, name]) => (
-                <option key={id} value={id} className="bg-card">
-                  {name}
-                </option>
+      <Card className="gap-0 p-0">
+        <SectionHead Icon={ClipboardTextIcon} title={seesAll ? "Tasks" : "My tasks"} count={visible.length}>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-lg border border-border bg-card p-0.5 text-sm">
+              {[false, true].map((done) => (
+                <button
+                  key={String(done)}
+                  onClick={() => setShowDone(done)}
+                  className={cn(
+                    "rounded-md px-3 py-1 font-medium transition-colors",
+                    showDone === done ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {done ? "Done" : "In progress"}
+                </button>
               ))}
-            </select>
+            </div>
+            {seesAll && assignees.length > 1 && (
+              <select
+                value={assignee}
+                onChange={(e) => setAssignee(e.target.value === "all" ? "all" : Number(e.target.value))}
+                className="h-8 rounded-lg border border-border bg-card px-2 text-sm"
+              >
+                <option value="all">Everyone</option>
+                {assignees.map(([id, name]) => (
+                  <option key={id} value={id}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        </SectionHead>
+        <div className="space-y-4 p-4">
+          {loading ? (
+            <Skeleton className="h-64 rounded-xl" />
+          ) : visible.length === 0 ? (
+            <Empty
+              title={showDone ? "Nothing fully approved yet" : "No tasks in progress"}
+              hint={manager && !showDone ? "Assign an approved trend above to create one." : undefined}
+            />
+          ) : (
+            visible.map((t) => (
+              <TaskCard
+                key={t.id}
+                task={t}
+                manager={manager}
+                mine={t.assigneeId === me?.id}
+                onAct={act}
+                onDelete={() => removeTask(t)}
+              />
+            ))
           )}
         </div>
-
-        {loading ? (
-          <Skeleton className="h-40 rounded-xl" />
-        ) : visible.length === 0 ? (
-          <div className="glass rounded-xl p-6 text-center text-sm text-muted-foreground">
-            {showDone ? "Nothing fully approved yet." : "No tasks in progress."}
-          </div>
-        ) : (
-          visible.map((t) => (
-            <TaskCard
-              key={t.id}
-              task={t}
-              manager={manager}
-              mine={t.assigneeId === me?.id}
-              onAct={act}
-              onDelete={() => removeTask(t)}
-            />
-          ))
-        )}
-      </section>
+      </Card>
 
       {assigning && (
         <AssignDialog
@@ -318,37 +336,124 @@ export default function ProductionPage() {
   );
 }
 
-function MethodPreview({ method }: { method: Method }) {
-  const src = method.outputPath ? fileUrl(method.outputPath) : null;
+function SectionHead({
+  Icon,
+  title,
+  count,
+  children,
+}: {
+  Icon: typeof MagicWandIcon;
+  title: string;
+  count: number;
+  children?: React.ReactNode;
+}) {
   return (
-    <div className="flex gap-3">
-      <div className="h-28 w-20 shrink-0 rounded-lg overflow-hidden bg-black/40">
-        {src &&
-          (method.type === "video" ? (
-            <video src={src} controls muted playsInline className="h-full w-full object-cover" />
-          ) : (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={src} alt="" className="h-full w-full object-cover" />
-          ))}
-      </div>
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex items-center gap-1.5">
-          <Badge className="bg-white/10 border-0 text-[10px] capitalize">{method.service}</Badge>
-          <span className="text-xs font-medium truncate">{method.model}</span>
-          <button
-            onClick={() => {
-              navigator.clipboard.writeText(method.prompt);
-              toast.success("Prompt copied");
-            }}
-            className="ml-auto text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1"
+    <div className="flex flex-wrap items-center gap-2.5 border-b border-border px-5 py-3.5">
+      <span className="grid size-8 place-items-center rounded-lg bg-brand/10 text-brand">
+        <Icon weight="bold" className="size-4" />
+      </span>
+      <h2 className="text-base font-semibold">{title}</h2>
+      <span className="tnum rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground">
+        {count}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+function Empty({ title, hint }: { title: string; hint?: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-border px-6 py-10 text-center">
+      <p className="text-sm font-medium">{title}</p>
+      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+// The photos/videos the method's generation was made from.
+function ReferenceStrip({ medias }: { medias: MediaRef[] }) {
+  if (medias.length === 0) return null;
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        References used ({medias.length})
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {medias.map((m, i) => (
+          <a
+            key={i}
+            href={m.url}
+            target="_blank"
+            rel="noreferrer"
+            title={`${m.role} — open full size`}
+            className="group relative size-16 overflow-hidden rounded-lg border border-border bg-black"
           >
-            <Copy className="h-3 w-3" /> Copy prompt
-          </button>
-        </div>
-        <p className="text-[11px] text-muted-foreground line-clamp-4 whitespace-pre-wrap">
-          {method.prompt || "(no prompt)"}
-        </p>
+            {isVideoRef(m) ? (
+              <>
+                <video src={`${m.url}#t=0.5`} preload="metadata" muted playsInline className="size-full object-cover" />
+                <PlayIcon weight="fill" className="absolute right-1 top-1 size-3 text-white drop-shadow" />
+              </>
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={m.url} alt={m.role} loading="lazy" className="size-full object-cover" />
+            )}
+            <span className="absolute inset-x-0 bottom-0 truncate bg-black/60 px-1 py-0.5 text-center text-[9px] text-white">
+              {m.role.replace(/_/g, " ")}
+            </span>
+          </a>
+        ))}
       </div>
+    </div>
+  );
+}
+
+function MethodPreview({ method, compact = false }: { method: Method; compact?: boolean }) {
+  const src = method.outputPath ? fileUrl(method.outputPath) : null;
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-3">
+        <div className="aspect-[9/16] w-20 shrink-0 overflow-hidden rounded-lg bg-black">
+          {src &&
+            (method.type === "video" ? (
+              <video src={src} controls muted playsInline className="size-full object-cover" />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={src} alt="" className="size-full object-cover" />
+            ))}
+        </div>
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="rounded-md bg-secondary px-1.5 py-0.5 text-[11px] font-medium capitalize">
+              {method.service}
+            </span>
+            <span className="text-sm font-semibold break-all">{method.model}</span>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(method.prompt);
+                toast.success("Prompt copied");
+              }}
+              className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <CopyIcon className="size-3.5" /> Copy prompt
+            </button>
+          </div>
+          <p
+            className={cn(
+              "whitespace-pre-wrap text-xs text-muted-foreground",
+              !expanded && (compact ? "line-clamp-3" : "line-clamp-5")
+            )}
+          >
+            {method.prompt || "(no prompt)"}
+          </p>
+          {method.prompt.length > 240 && (
+            <button onClick={() => setExpanded((e) => !e)} className="text-xs font-medium text-brand hover:underline">
+              {expanded ? "Show less" : "Show full prompt"}
+            </button>
+          )}
+        </div>
+      </div>
+      <ReferenceStrip medias={method.medias ?? []} />
     </div>
   );
 }
@@ -368,60 +473,90 @@ function TaskCard({
 }) {
   const done = t.items.filter((i) => i.status === "approved").length;
   const overdue = !isDone(t) && t.dueDate < todayLocal();
+  const pct = t.items.length ? Math.round((done / t.items.length) * 100) : 0;
 
   return (
-    <div className="glass rounded-2xl p-4 space-y-4">
-      <div className="flex items-center gap-2 flex-wrap">
+    <div className="rounded-xl border border-border bg-background/40">
+      {/* Header */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-3">
+        <p className="text-sm font-semibold">{t.trend?.niche || "Task"}</p>
         {t.trend && (
-          <>
-            <Badge className="bg-white/10 border-0 text-[10px] capitalize">{t.trend.kind}</Badge>
-            <a
-              href={t.trend.url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-sm font-medium hover:underline flex items-center gap-1.5 min-w-0"
-            >
-              <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <span className="truncate max-w-[28ch]">{shortLink(t.trend.url)}</span>
-            </a>
-          </>
+          <span className="rounded-md bg-secondary px-1.5 py-0.5 text-[11px] font-medium capitalize">{t.trend.kind}</span>
         )}
-        <span className={cn("text-[11px]", overdue ? "text-red-300" : "text-muted-foreground")}>
-          due {prettyDate(t.dueDate)}
+        <span className={cn("text-xs", overdue ? "font-medium text-destructive" : "text-muted-foreground")}>
+          Due {prettyDate(t.dueDate)}
           {overdue && " · overdue"}
         </span>
-        <span className="text-[11px] text-muted-foreground ml-auto">
-          {manager || !mine ? `${t.assignee} · ` : ""}
-          {done}/{t.items.length} approved
-        </span>
-        {manager && (
-          <Button size="sm" variant="ghost" onClick={onDelete} className="h-7 w-7 p-0 hover:text-red-300" title="Delete task">
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        )}
+        <div className="ml-auto flex items-center gap-3">
+          {(manager || !mine) && <span className="text-xs text-muted-foreground">{t.assignee}</span>}
+          <div className="flex items-center gap-2">
+            <div className="h-1.5 w-20 overflow-hidden rounded-full bg-secondary">
+              <div className="h-full rounded-full bg-[var(--pass)] transition-all" style={{ width: `${pct}%` }} />
+            </div>
+            <span className="tnum text-xs text-muted-foreground">
+              {done}/{t.items.length}
+            </span>
+          </div>
+          {manager && (
+            <Button size="icon-sm" variant="ghost" onClick={onDelete} title="Delete task" className="hover:text-destructive">
+              <TrashIcon className="size-4" />
+            </Button>
+          )}
+        </div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-4">
-        <div className="space-y-3">
-          {t.method ? (
-            <MethodPreview method={t.method} />
+      {/* Body: reference reel · how to make it · one row per model */}
+      <div className="grid gap-5 p-4 lg:grid-cols-[8rem_minmax(0,1fr)_minmax(0,22rem)]">
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Original</p>
+          {t.trend ? (
+            <ReelPreview url={t.trend.url} kind={t.trend.kind} className="w-32 max-lg:w-28" />
           ) : (
-            <p className="text-xs text-muted-foreground">No method attached.</p>
+            <p className="text-xs text-muted-foreground">Trend deleted</p>
           )}
+        </div>
+
+        <div className="min-w-0 space-y-4">
+          <div className="space-y-1.5">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Method</p>
+            {t.method ? (
+              <MethodPreview method={t.method} />
+            ) : (
+              <p className="text-xs text-muted-foreground">No method attached.</p>
+            )}
+          </div>
+
           {(t.exampleModel || t.exampleUrl) && (
-            <div className="rounded-lg bg-brand/10 px-3 py-2 text-xs space-y-0.5">
-              <p className="font-medium">Example{t.exampleModel && ` for ${t.exampleModel}`}</p>
-              {t.exampleUrl && (
-                <a href={t.exampleUrl} target="_blank" rel="noreferrer" className="underline underline-offset-2 break-all">
-                  {shortLink(t.exampleUrl)}
+            <div className="flex items-center gap-3 rounded-lg border border-brand/25 bg-brand/[0.06] px-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-brand">Example</p>
+                <p className="text-sm font-medium">{t.exampleModel ? `Made for ${t.exampleModel}` : "Reference example"}</p>
+              </div>
+              {t.exampleUrl && /^https?:\/\//i.test(t.exampleUrl) && (
+                <a
+                  href={t.exampleUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs font-medium hover:bg-accent"
+                >
+                  Open <ArrowSquareOutIcon className="size-3.5" />
                 </a>
               )}
             </div>
           )}
-          {t.notes && <p className="text-xs text-foreground/80 whitespace-pre-wrap">{t.notes}</p>}
+
+          {t.notes && (
+            <div className="rounded-lg bg-secondary/50 px-3 py-2">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Notes</p>
+              <p className="mt-0.5 whitespace-pre-wrap text-sm">{t.notes}</p>
+            </div>
+          )}
         </div>
 
         <div className="space-y-2">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            To make · {t.items.length} model{t.items.length === 1 ? "" : "s"}
+          </p>
           {t.items.map((i) => (
             <ItemRow key={i.id} item={i} manager={manager} mine={mine} onAct={onAct} />
           ))}
@@ -456,24 +591,29 @@ function ItemRow({
   };
 
   return (
-    <div className="rounded-xl border border-white/5 bg-white/[0.02] p-2.5 space-y-2">
+    <div
+      className={cn(
+        "space-y-2 rounded-lg border p-2.5",
+        i.status === "approved" ? "border-[var(--pass)]/25 bg-[var(--pass)]/[0.04]" : "border-border bg-card"
+      )}
+    >
       <div className="flex items-center gap-2">
-        <span className="text-sm font-medium">{i.model}</span>
+        <span className="text-sm font-semibold">{i.model}</span>
         <StatusBadge status={i.status} />
         {i.driveUrl && (
           <a
             href={i.driveUrl}
             target="_blank"
             rel="noreferrer"
-            className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 ml-auto flex items-center gap-1"
+            className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
           >
-            <ExternalLink className="h-3 w-3" /> Open
+            Open <ArrowSquareOutIcon className="size-3.5" />
           </a>
         )}
       </div>
       {i.reviewNote && (
-        <p className="text-xs rounded-lg bg-red-500/10 text-red-200 px-2.5 py-1.5">
-          <span className="font-medium">{i.reviewedBy}:</span> {i.reviewNote}
+        <p className="rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-1.5 text-xs text-destructive">
+          <span className="font-semibold">{i.reviewedBy}:</span> {i.reviewNote}
         </p>
       )}
       {canSubmit && (
@@ -482,45 +622,46 @@ function ItemRow({
             value={link}
             onChange={(e) => setLink(e.target.value)}
             placeholder="Google Drive link"
-            className="glass border-white/10 h-8 text-xs"
+            className="h-8 text-sm"
           />
           <Button
             size="sm"
             disabled={busy || !link.trim() || (link.trim() === i.driveUrl && i.status === "submitted")}
             onClick={() => run("submit", { driveUrl: link })}
-            className="h-8 px-2.5 text-xs rounded-lg bg-brand hover:bg-brand/90 text-brand-foreground gap-1"
+            className="shrink-0 gap-1 bg-brand text-brand-foreground hover:bg-brand/90"
           >
-            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+            {busy ? <SpinnerGapIcon className="size-3.5 animate-spin" /> : <PaperPlaneTiltIcon className="size-3.5" />}
             {i.status === "submitted" ? "Update" : "Hand in"}
           </Button>
         </div>
       )}
       {manager && i.status === "submitted" && (
-        <div className="flex gap-1.5 justify-end">
+        <div className="flex justify-end gap-1.5">
           <Button
             size="sm"
             disabled={busy}
             onClick={() => run("approve")}
-            className="h-7 px-2 text-xs rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 gap-1"
+            className="gap-1 bg-[var(--pass)]/15 text-[var(--pass)] hover:bg-[var(--pass)]/25"
           >
-            <ThumbsUp className="h-3 w-3" /> Approve
+            <ThumbsUpIcon weight="bold" className="size-3.5" /> Approve
           </Button>
           <Button
             size="sm"
+            variant="outline"
             disabled={busy}
             onClick={() => {
               const note = window.prompt(`What needs fixing on ${i.model}?`);
               if (note !== null) run("reject", { note });
             }}
-            className="h-7 px-2 text-xs rounded-lg bg-red-500/15 hover:bg-red-500/25 text-red-200 gap-1"
+            className="gap-1 text-destructive hover:bg-destructive/10 hover:text-destructive"
           >
-            <ThumbsDown className="h-3 w-3" /> Reject
+            <ThumbsDownIcon weight="bold" className="size-3.5" /> Reject
           </Button>
         </div>
       )}
       {i.status === "approved" && (
-        <p className="text-[11px] text-emerald-300/80 flex items-center gap-1">
-          <CheckCircle2 className="h-3 w-3" /> approved by {i.reviewedBy}
+        <p className="flex items-center gap-1 text-xs text-[var(--pass)]">
+          <CheckCircleIcon weight="fill" className="size-3.5" /> Approved by {i.reviewedBy}
         </p>
       )}
     </div>
@@ -588,144 +729,152 @@ function AssignDialog({
     }
   };
 
+  const label = "text-xs font-medium text-muted-foreground";
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="glass-strong border-white/10 sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
         <DialogHeader>
-          <DialogTitle>Assign: {shortLink(trend.url)}</DialogTitle>
+          <DialogTitle>Assign a task</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-5">
+        <div className="grid gap-6 md:grid-cols-[9rem_minmax(0,1fr)]">
           <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Method</p>
-              <div className="glass rounded-lg p-0.5 flex text-xs ml-auto">
-                {(["video", "image"] as const).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setMethodType(t)}
-                    className={cn(
-                      "px-2.5 py-1 rounded-md capitalize",
-                      methodType === t ? "bg-white/10 text-foreground" : "text-muted-foreground"
-                    )}
-                  >
-                    {t}s
-                  </button>
-                ))}
-              </div>
-            </div>
-            {methods === null ? (
-              <Skeleton className="h-28 rounded-xl" />
-            ) : shown.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                No saved {methodType} methods. Save generations on the Methods page (Higgsfield or Yapper) first.
-              </p>
-            ) : (
-              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-56 overflow-y-auto pr-1">
-                {shown.map((m) => {
-                  const src = m.thumbnailPath || m.outputPath;
-                  const on = method?.service === m.service && method.id === m.id;
-                  return (
+            <ReelPreview url={trend.url} kind={trend.kind} className="w-36 max-md:w-28" />
+            <p className="truncate text-sm font-semibold">{trend.niche || "No niche"}</p>
+            <p className="line-clamp-4 text-xs text-muted-foreground">{trend.justification}</p>
+          </div>
+
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <p className={label}>Method</p>
+                <div className="ml-auto inline-flex rounded-lg border border-border bg-card p-0.5 text-xs">
+                  {(["video", "image"] as const).map((t) => (
                     <button
-                      key={`${m.service}:${m.id}`}
-                      onClick={() => setMethod(on ? null : m)}
-                      title={m.prompt}
+                      key={t}
+                      onClick={() => setMethodType(t)}
                       className={cn(
-                        "relative aspect-[3/4] rounded-lg overflow-hidden bg-black/40 ring-2 transition",
-                        on ? "ring-brand" : "ring-transparent hover:ring-white/20"
+                        "rounded-md px-2.5 py-1 font-medium capitalize",
+                        methodType === t ? "bg-secondary text-foreground" : "text-muted-foreground"
                       )}
                     >
-                      {src &&
-                        (m.type === "video" && !m.thumbnailPath ? (
-                          <video src={`${fileUrl(src)}#t=0.5`} preload="metadata" muted className="h-full w-full object-cover" />
-                        ) : (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={fileUrl(src)} alt="" className="h-full w-full object-cover" />
-                        ))}
-                      <span className="absolute bottom-0 inset-x-0 bg-black/60 text-[9px] py-0.5 capitalize">
-                        {m.service}
-                      </span>
+                      {t}s
                     </button>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
-            )}
-            {method && <MethodPreview method={method} />}
-          </div>
-
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Content creator</p>
-              <select
-                value={assigneeId}
-                onChange={(e) => setAssigneeId(e.target.value ? Number(e.target.value) : "")}
-                className="w-full glass border border-white/10 rounded-md h-9 px-2 text-sm bg-transparent"
-              >
-                <option value="" className="bg-card">Pick someone</option>
-                {[...creators, ...others].map((p) => (
-                  <option key={p.id} value={p.id} className="bg-card">
-                    {p.name} ({ROLE_LABEL[p.role] ?? p.role})
-                  </option>
-                ))}
-              </select>
+              {methods === null ? (
+                <Skeleton className="h-28 rounded-xl" />
+              ) : shown.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No saved {methodType} methods. Save generations on the Methods page (Higgsfield or Yapper) first.
+                </p>
+              ) : (
+                <div className="grid max-h-56 grid-cols-4 gap-2 overflow-y-auto pr-1 sm:grid-cols-6">
+                  {shown.map((m) => {
+                    const src = m.thumbnailPath || m.outputPath;
+                    const on = method?.service === m.service && method.id === m.id;
+                    return (
+                      <button
+                        key={`${m.service}:${m.id}`}
+                        onClick={() => setMethod(on ? null : m)}
+                        title={m.prompt}
+                        className={cn(
+                          "relative aspect-[3/4] overflow-hidden rounded-lg bg-black ring-2 transition",
+                          on ? "ring-brand" : "ring-transparent hover:ring-border"
+                        )}
+                      >
+                        {src &&
+                          (m.type === "video" && !m.thumbnailPath ? (
+                            <video src={`${fileUrl(src)}#t=0.5`} preload="metadata" muted className="size-full object-cover" />
+                          ) : (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={fileUrl(src)} alt="" className="size-full object-cover" />
+                          ))}
+                        <span className="absolute inset-x-0 bottom-0 bg-black/60 py-0.5 text-[9px] capitalize text-white">
+                          {m.service}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {method && (
+                <div className="rounded-xl border border-border bg-background/40 p-3">
+                  <MethodPreview method={method} compact />
+                </div>
+              )}
             </div>
-            <div className="space-y-1.5">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Due</p>
-              <Input
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="glass border-white/10 h-9 text-sm"
-              />
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <p className={label}>Content creator</p>
+                <select
+                  value={assigneeId}
+                  onChange={(e) => setAssigneeId(e.target.value ? Number(e.target.value) : "")}
+                  className="h-9 w-full rounded-lg border border-border bg-card px-2 text-sm"
+                >
+                  <option value="">Pick someone</option>
+                  {[...creators, ...others].map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({ROLE_LABEL[p.role] ?? p.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <p className={label}>Due</p>
+                <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+              </div>
             </div>
-          </div>
 
-          <div className="space-y-1.5">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Models to make it for</p>
-            <ChipPicker options={allModels} value={models} onChange={setModels} />
-          </div>
-
-          <div className="grid sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Your example is for
-              </p>
-              <select
-                value={exampleModel}
-                onChange={(e) => setExampleModel(e.target.value)}
-                className="w-full glass border border-white/10 rounded-md h-9 px-2 text-sm bg-transparent"
-              >
-                <option value="" className="bg-card">No example</option>
-                {models.map((m) => (
-                  <option key={m} value={m} className="bg-card">
-                    {m}
-                  </option>
-                ))}
-              </select>
+              <p className={label}>Models to make it for</p>
+              <ChipPicker options={allModels} value={models} onChange={setModels} />
             </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <p className={label}>Your example is for</p>
+                <select
+                  value={exampleModel}
+                  onChange={(e) => setExampleModel(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-border bg-card px-2 text-sm"
+                >
+                  <option value="">No example</option>
+                  {models.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <p className={label}>Example link</p>
+                <Input
+                  value={exampleUrl}
+                  onChange={(e) => setExampleUrl(e.target.value)}
+                  placeholder="Drive link to the example you made"
+                />
+              </div>
+            </div>
+
             <div className="space-y-1.5">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Example link</p>
-              <Input
-                value={exampleUrl}
-                onChange={(e) => setExampleUrl(e.target.value)}
-                placeholder="Drive link to the example you made"
-                className="glass border-white/10 h-9 text-sm"
-              />
+              <p className={label}>Notes for the creator</p>
+              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
             </div>
+
+            <p className="rounded-lg bg-secondary/50 px-3 py-2 text-sm">
+              {remaining.length > 0 ? (
+                <>
+                  The creator makes <span className="font-semibold">{remaining.length}</span>: {remaining.join(", ")}.
+                </>
+              ) : (
+                <span className="text-muted-foreground">Pick at least one model besides the example.</span>
+              )}
+            </p>
           </div>
-
-          <Textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Notes for the creator (optional)"
-            className="glass border-white/10 text-sm"
-          />
-
-          <p className="text-xs text-muted-foreground">
-            {remaining.length > 0
-              ? `The creator makes ${remaining.length}: ${remaining.join(", ")}.`
-              : "Pick at least one model besides the example."}
-          </p>
         </div>
 
         <DialogFooter>
@@ -735,9 +884,9 @@ function AssignDialog({
           <Button
             onClick={create}
             disabled={busy || !assigneeId || remaining.length === 0 || !dueDate}
-            className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
+            className="gap-2 bg-brand text-brand-foreground hover:bg-brand/90"
           >
-            {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+            {busy && <SpinnerGapIcon className="size-4 animate-spin" />}
             Assign task
           </Button>
         </DialogFooter>

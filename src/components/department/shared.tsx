@@ -11,12 +11,13 @@ import { useMe } from "@/components/layout/me-context";
 
 export type Status = "pending" | "approved" | "rejected" | "todo" | "submitted";
 
+// Insights' QC state tokens (--pass / --review), contrast-checked for the dark card.
 const STATUS_STYLE: Record<Status, string> = {
-  pending: "bg-amber-500/15 text-amber-300",
-  submitted: "bg-sky-500/15 text-sky-300",
-  approved: "bg-emerald-500/15 text-emerald-300",
-  rejected: "bg-red-500/15 text-red-300",
-  todo: "bg-white/10 text-muted-foreground",
+  pending: "bg-[var(--review)]/15 text-[var(--review)]",
+  submitted: "bg-chart-2/15 text-chart-2",
+  approved: "bg-[var(--pass)]/15 text-[var(--pass)]",
+  rejected: "bg-destructive/15 text-destructive",
+  todo: "bg-secondary text-muted-foreground",
 };
 
 const STATUS_LABEL: Record<Status, string> = {
@@ -29,7 +30,8 @@ const STATUS_LABEL: Record<Status, string> = {
 
 export function StatusBadge({ status }: { status: Status }) {
   return (
-    <Badge className={cn("text-[10px] h-5 px-1.5 border-0", STATUS_STYLE[status])}>
+    <Badge className={cn("h-5 shrink-0 rounded-full border-0 px-2 text-[11px] font-medium", STATUS_STYLE[status])}>
+      <span className="size-1.5 rounded-full bg-current" />
       {STATUS_LABEL[status]}
     </Badge>
   );
@@ -60,10 +62,10 @@ export function ChipPicker({
             type="button"
             onClick={() => onChange(on ? value.filter((v) => v !== o) : [...value, o])}
             className={cn(
-              "px-2.5 py-1 rounded-lg text-xs border transition-colors",
+              "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
               on
-                ? "bg-brand/20 border-brand/50 text-brand"
-                : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
+                ? "border-brand/60 bg-brand/15 text-brand"
+                : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
             )}
           >
             {o}
@@ -88,13 +90,13 @@ export function DayPicker({
       <Button
         variant="outline"
         size="sm"
-        className="h-8 w-8 p-0 rounded-lg border-white/10"
+        className="h-8 w-8 p-0 rounded-lg"
         onClick={() => onChange(addDays(date, -1))}
         title="Previous day"
       >
         <ChevronLeft className="h-4 w-4" />
       </Button>
-      <label className="relative glass rounded-lg h-8 px-3 flex items-center text-sm font-medium cursor-pointer">
+      <label className="relative flex h-8 cursor-pointer items-center rounded-lg border border-border bg-card px-3 text-sm font-medium hover:bg-accent">
         {prettyDate(date)}
         <input
           type="date"
@@ -106,7 +108,7 @@ export function DayPicker({
       <Button
         variant="outline"
         size="sm"
-        className="h-8 w-8 p-0 rounded-lg border-white/10"
+        className="h-8 w-8 p-0 rounded-lg"
         onClick={() => onChange(addDays(date, 1))}
         title="Next day"
       >
@@ -138,27 +140,30 @@ export function WorkBanners() {
   return (
     <div className="space-y-2">
       {!clock.session && (
-        <div className="glass rounded-xl px-4 py-3 flex items-center gap-3 border border-amber-500/30">
-          <Timer className="h-4 w-4 text-amber-300 shrink-0" />
-          <p className="text-sm flex-1">
+        <div className="flex items-center gap-3 rounded-xl border border-brand/30 bg-brand/[0.06] px-4 py-3">
+          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand/15 text-brand">
+            <Timer className="size-4" />
+          </span>
+          <p className="flex-1 text-sm">
             {"You're not clocked in. Clock in to start submitting today's work."}
           </p>
-          <Button
-            size="sm"
-            onClick={() => setClock("in")}
-            className="rounded-lg bg-amber-500/80 hover:bg-amber-500 text-black"
-          >
+          <Button size="sm" onClick={() => setClock("in")} className="bg-brand text-brand-foreground hover:bg-brand/90">
             Clock in
           </Button>
         </div>
       )}
       {trackerStale && (
-        <div className="glass rounded-xl px-4 py-3 flex items-center gap-3 border border-white/10">
-          <Puzzle className="h-4 w-4 text-muted-foreground shrink-0" />
+        <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3">
+          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-secondary text-muted-foreground">
+            <Puzzle className="size-4" />
+          </span>
           <p className="text-sm flex-1 text-muted-foreground">
             {"The Chrome work tracker isn't connected on this account yet."}
           </p>
-          <Link href="/tracker" className="text-xs underline underline-offset-2">
+          <Link
+            href="/tracker"
+            className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent"
+          >
             Set it up
           </Link>
         </div>
@@ -177,7 +182,9 @@ export function shortLink(url: string): string {
   }
 }
 
-export function PageHeader({ title, subtitle, children }: {
+// Insights' page header: orange eyebrow (the section), title, one-line subtitle.
+export function PageHeader({ eyebrow, title, subtitle, children }: {
+  eyebrow?: string;
   title: string;
   subtitle: string;
   children?: React.ReactNode;
@@ -185,9 +192,8 @@ export function PageHeader({ title, subtitle, children }: {
   return (
     <div className="flex items-end justify-between gap-4 flex-wrap">
       <div>
-        <h2 className="text-2xl font-semibold tracking-tight">
-          {title}
-        </h2>
+        {eyebrow && <p className="text-sm font-medium text-brand">{eyebrow}</p>}
+        <h1 className={cn("text-2xl font-semibold tracking-tight", eyebrow && "mt-1")}>{title}</h1>
         <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>
       </div>
       {children}

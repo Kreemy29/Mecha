@@ -17,7 +17,7 @@ export function SectionNav() {
 
   return (
     <div className="border-b border-border/70 bg-card/40 print:hidden">
-      <div className="flex w-full gap-1 overflow-x-auto px-4 sm:px-6">
+      <div className="flex w-full gap-1 overflow-x-auto px-4 sm:px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {section.pages.map(({ href, label }) => {
           const active = isActive(pathname, href);
           return (

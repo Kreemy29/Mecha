@@ -3,26 +3,25 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
-  Clapperboard,
-  GalleryHorizontalEnd,
-  ExternalLink,
-  Loader2,
-  Pencil,
-  Plus,
-  ThumbsDown,
-  ThumbsUp,
-  Trash2,
-  Undo2,
-  X,
-} from "lucide-react";
+  FilmStripIcon,
+  ImagesIcon,
+  PencilSimpleIcon,
+  PlusIcon,
+  SpinnerGapIcon,
+  ThumbsDownIcon,
+  ThumbsUpIcon,
+  TrashIcon,
+  ArrowCounterClockwiseIcon,
+  XIcon,
+} from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { can } from "@/lib/roles";
-import { addDays, parseLocalDate, todayLocal } from "@/lib/day";
+import { addDays, parseLocalDate, startOfWeek, todayLocal } from "@/lib/day";
 import { useMe } from "@/components/layout/me-context";
 import {
   ChipPicker,
@@ -32,6 +31,7 @@ import {
   WorkBanners,
   shortLink,
 } from "@/components/department/shared";
+import { ReelPreview } from "@/components/department/reel-preview";
 
 type Kind = "reel" | "carousel";
 type ReviewStatus = "pending" | "approved" | "rejected";
@@ -67,16 +67,10 @@ interface Draft {
 
 const EMPTY: Draft = { url: "", niche: "", models: [], justification: "" };
 
-const SECTIONS: { kind: Kind; label: string; icon: typeof Clapperboard }[] = [
-  { kind: "reel", label: "Reels", icon: Clapperboard },
-  { kind: "carousel", label: "Carousels", icon: GalleryHorizontalEnd },
+const SECTIONS: { kind: Kind; label: string; Icon: typeof FilmStripIcon }[] = [
+  { kind: "reel", label: "Reels", Icon: FilmStripIcon },
+  { kind: "carousel", label: "Carousels", Icon: ImagesIcon },
 ];
-
-// Monday of the week containing `date`.
-function weekStart(date: string): string {
-  const day = (parseLocalDate(date).getDay() + 6) % 7;
-  return addDays(date, -day);
-}
 
 export default function TrendsPage() {
   const { me } = useMe();
@@ -87,9 +81,10 @@ export default function TrendsPage() {
   const [models, setModels] = useState<string[]>([]);
   const [niches, setNiches] = useState<string[]>([]);
   const [researcher, setResearcher] = useState<number | "all">("all");
+  const [adding, setAdding] = useState<Kind | null>(null);
 
   const week = useMemo(() => {
-    const start = weekStart(date);
+    const start = startOfWeek(date);
     return Array.from({ length: 7 }, (_, i) => addDays(start, i));
   }, [date]);
 
@@ -147,6 +142,7 @@ export default function TrendsPage() {
     const row = await send("POST", { ...draft, kind, date });
     setTrends((prev) => [row, ...prev]);
     if (draft.niche && !niches.includes(draft.niche)) setNiches((n) => [...n, draft.niche].sort());
+    setAdding(null);
     load();
   };
 
@@ -180,14 +176,19 @@ export default function TrendsPage() {
     }
   };
 
+  const dayTotal = visible.length;
+  const dayApproved = visible.filter((t) => t.status === "approved").length;
+  const dayPending = visible.filter((t) => t.status === "pending").length;
+
   return (
     <div className="space-y-6">
       <PageHeader
+        eyebrow="Department"
         title="Trends"
         subtitle={
           reviewer
-            ? "Daily trend suggestions from research. Approve the ones worth producing."
-            : "Pick the day, drop your reel and carousel finds, assign models and say why they'll go viral."
+            ? "Daily finds from research. Approve the ones worth producing."
+            : "Pick the day, add your reel and carousel finds, assign models and say why they'll go viral."
         }
       >
         <DayPicker date={date} onChange={setDate} />
@@ -195,108 +196,151 @@ export default function TrendsPage() {
 
       <WorkBanners />
 
-      {/* Week strip */}
-      <div className="grid grid-cols-7 gap-1.5">
-        {week.map((d) => {
-          const c = counts.find((x) => x.date === d);
-          const day = parseLocalDate(d);
-          return (
-            <button
-              key={d}
-              onClick={() => setDate(d)}
-              className={cn(
-                "glass rounded-xl px-2 py-2 text-left transition-colors",
-                d === date
-                  ? "ring-1 ring-brand bg-brand/10"
-                  : "hover:bg-white/5"
-              )}
-            >
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                {day.toLocaleDateString(undefined, { weekday: "short" })}
-                {d === todayLocal() && " · today"}
-              </p>
-              <p className="text-sm font-semibold">{day.getDate()}</p>
-              <p className="text-[10px] text-muted-foreground">
-                {c ? (
-                  <>
-                    {c.total} in · <span className="text-emerald-300">{c.approved} ok</span>
-                    {c.pending > 0 && <span className="text-amber-300"> · {c.pending} wait</span>}
-                  </>
-                ) : (
-                  "nothing yet"
+      {/* Week at a glance */}
+      <Card className="gap-0 p-1.5">
+        <div className="grid grid-cols-7 gap-1">
+          {week.map((d) => {
+            const c = counts.find((x) => x.date === d);
+            const day = parseLocalDate(d);
+            const selected = d === date;
+            const isToday = d === todayLocal();
+            return (
+              <button
+                key={d}
+                onClick={() => setDate(d)}
+                className={cn(
+                  "rounded-lg px-2 py-2 text-left transition-colors",
+                  selected ? "bg-brand/10 ring-1 ring-brand/60" : "hover:bg-accent"
                 )}
-              </p>
-            </button>
-          );
-        })}
+              >
+                <p className={cn("text-[10px] font-medium uppercase tracking-wide", isToday ? "text-brand" : "text-muted-foreground")}>
+                  {day.toLocaleDateString(undefined, { weekday: "short" })}
+                  {isToday && " · today"}
+                </p>
+                <p className="tnum mt-0.5 text-lg font-semibold leading-none">{day.getDate()}</p>
+                <div className="mt-1.5 flex h-4 items-center gap-1">
+                  {c ? (
+                    <>
+                      <span className="tnum text-[11px] text-muted-foreground">{c.total}</span>
+                      {c.approved > 0 && <span className="size-1.5 rounded-full bg-[var(--pass)]" title={`${c.approved} approved`} />}
+                      {c.pending > 0 && <span className="size-1.5 rounded-full bg-[var(--review)]" title={`${c.pending} waiting`} />}
+                    </>
+                  ) : (
+                    <span className="text-[11px] text-muted-foreground/50">–</span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </Card>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+        <span className="text-muted-foreground">
+          <span className="tnum font-semibold text-foreground">{dayTotal}</span> suggested ·{" "}
+          <span className="tnum font-semibold text-[var(--pass)]">{dayApproved}</span> approved ·{" "}
+          <span className="tnum font-semibold text-[var(--review)]">{dayPending}</span> waiting
+        </span>
+        {reviewer && researchers.length > 1 && (
+          <div className="ml-auto inline-flex rounded-lg border border-border bg-card p-0.5 text-sm">
+            {[["all", "Everyone"] as const, ...researchers].map(([id, name]) => (
+              <button
+                key={id}
+                onClick={() => setResearcher(id)}
+                className={cn(
+                  "rounded-md px-3 py-1 font-medium transition-colors",
+                  researcher === id ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {reviewer && researchers.length > 1 && (
-        <div className="flex items-center gap-2 text-xs">
-          <span className="text-muted-foreground">Researcher:</span>
-          {[["all", "Everyone"] as const, ...researchers].map(([id, name]) => (
-            <button
-              key={id}
-              onClick={() => setResearcher(id)}
-              className={cn(
-                "px-2.5 py-1 rounded-lg border",
-                researcher === id
-                  ? "border-brand/50 bg-brand/15"
-                  : "border-white/10 text-muted-foreground"
-              )}
-            >
-              {name}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="grid lg:grid-cols-2 gap-6">
-        {SECTIONS.map(({ kind, label, icon: Icon }) => {
+      <div className="grid gap-6 xl:grid-cols-2">
+        {SECTIONS.map(({ kind, label, Icon }) => {
           const list = visible.filter((t) => t.kind === kind);
           return (
-            <section key={kind} className="space-y-3">
-              <h3 className="text-sm font-semibold flex items-center gap-2">
-                <Icon className="h-4 w-4 text-brand" />
-                {label}
-                <Badge className="bg-white/10 border-0 text-[10px]">{list.length}</Badge>
-              </h3>
+            <Card key={kind} className="gap-0 p-0">
+              <div className="flex items-center gap-2.5 border-b border-border px-5 py-3.5">
+                <span className="grid size-8 place-items-center rounded-lg bg-brand/10 text-brand">
+                  <Icon weight="bold" className="size-4" />
+                </span>
+                <h2 className="text-base font-semibold">{label}</h2>
+                <span className="tnum rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  {list.length}
+                </span>
+                {suggester && adding !== kind && (
+                  <Button size="sm" variant="outline" onClick={() => setAdding(kind)} className="ml-auto gap-1.5">
+                    <PlusIcon weight="bold" className="size-3.5" /> Add {kind}
+                  </Button>
+                )}
+              </div>
 
-              {suggester && (
-                <AddTrend
-                  kind={kind}
-                  models={models}
-                  niches={niches}
-                  onSubmit={(draft) => create(kind, draft)}
-                />
-              )}
+              <div className="space-y-3 p-4">
+                {adding === kind && (
+                  <div className="rounded-xl border border-brand/30 bg-brand/[0.04] p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <p className="text-sm font-semibold">New {kind}</p>
+                      <button
+                        onClick={() => setAdding(null)}
+                        className="text-muted-foreground hover:text-foreground"
+                        aria-label="Cancel"
+                      >
+                        <XIcon className="size-4" />
+                      </button>
+                    </div>
+                    <TrendForm
+                      initial={EMPTY}
+                      models={models}
+                      niches={niches}
+                      submitLabel={`Submit ${kind}`}
+                      onSubmit={(draft) => create(kind, draft)}
+                    />
+                  </div>
+                )}
 
-              {loading ? (
-                <Skeleton className="h-32 rounded-xl" />
-              ) : list.length === 0 ? (
-                <div className="glass rounded-xl p-6 text-center text-sm text-muted-foreground">
-                  No {label.toLowerCase()} for this day.
-                </div>
-              ) : (
-                list.map((t) => (
-                  <TrendCard
-                    key={t.id}
-                    trend={t}
-                    reviewer={reviewer}
-                    mine={t.createdById === me?.id}
-                    manager={!!me && can.manageProduction(me)}
-                    models={models}
-                    niches={niches}
-                    onReview={(s) => review(t, s)}
-                    onEdit={(d) => edit(t, d)}
-                    onDelete={() => remove(t)}
-                  />
-                ))
-              )}
-            </section>
+                {loading ? (
+                  <Skeleton className="h-44 rounded-xl" />
+                ) : list.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-border px-6 py-10 text-center">
+                    <p className="text-sm font-medium">No {label.toLowerCase()} for this day</p>
+                    {suggester && adding !== kind && (
+                      <p className="mt-1 text-xs text-muted-foreground">Use “Add {kind}” to put one forward.</p>
+                    )}
+                  </div>
+                ) : (
+                  list.map((t) => (
+                    <TrendCard
+                      key={t.id}
+                      trend={t}
+                      reviewer={reviewer}
+                      mine={t.createdById === me?.id}
+                      manager={!!me && can.manageProduction(me)}
+                      models={models}
+                      niches={niches}
+                      onReview={(s) => review(t, s)}
+                      onEdit={(d) => edit(t, d)}
+                      onDelete={() => remove(t)}
+                    />
+                  ))
+                )}
+              </div>
+            </Card>
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      {children}
     </div>
   );
 }
@@ -335,99 +379,60 @@ function TrendForm({
   };
 
   return (
-    <div className="space-y-3">
-      <Input
-        value={draft.url}
-        onChange={(e) => set("url", e.target.value)}
-        placeholder="Instagram link (https://www.instagram.com/reel/...)"
-        className="glass border-white/10 h-9 text-sm"
-      />
-      <div>
-        <Input
-          value={draft.niche}
-          onChange={(e) => set("niche", e.target.value)}
-          placeholder="Niche (pick or type a new one)"
-          list={listId}
-          className="glass border-white/10 h-9 text-sm"
-        />
-        <datalist id={listId}>
-          {niches.map((n) => (
-            <option key={n} value={n} />
-          ))}
-        </datalist>
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-[1fr_14rem]">
+        <Field label="Instagram link">
+          <Input
+            value={draft.url}
+            onChange={(e) => set("url", e.target.value)}
+            placeholder="https://www.instagram.com/reel/..."
+          />
+        </Field>
+        <Field label="Niche">
+          <Input
+            value={draft.niche}
+            onChange={(e) => set("niche", e.target.value)}
+            placeholder="Pick or type a new one"
+            list={listId}
+          />
+          <datalist id={listId}>
+            {niches.map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
+        </Field>
       </div>
-      <div className="space-y-1.5">
-        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Models</p>
+      <Field label="Models">
         <ChipPicker
           options={models}
           value={draft.models}
           onChange={(v) => set("models", v)}
           empty="No models yet. Add them on the Instagram page or Characters."
         />
-      </div>
-      <Textarea
-        value={draft.justification}
-        onChange={(e) => set("justification", e.target.value)}
-        placeholder="Why do you think it will go viral?"
-        className="glass border-white/10 text-sm min-h-20"
-      />
+      </Field>
+      <Field label="Why do you think it will go viral?">
+        <Textarea
+          value={draft.justification}
+          onChange={(e) => set("justification", e.target.value)}
+          placeholder="The hook, the trend it rides, why it fits these models…"
+          className="min-h-20"
+        />
+      </Field>
       <div className="flex justify-end gap-2">
         {onCancel && (
-          <Button variant="ghost" size="sm" onClick={onCancel}>
+          <Button variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
         )}
         <Button
-          size="sm"
           onClick={submit}
           disabled={busy || !draft.url.trim() || draft.models.length === 0 || !draft.justification.trim()}
-          className="rounded-lg bg-brand hover:bg-brand/90 text-brand-foreground gap-1.5"
+          className="gap-1.5 bg-brand text-brand-foreground hover:bg-brand/90"
         >
-          {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          {busy && <SpinnerGapIcon className="size-4 animate-spin" />}
           {submitLabel}
         </Button>
       </div>
-    </div>
-  );
-}
-
-function AddTrend({
-  kind,
-  models,
-  niches,
-  onSubmit,
-}: {
-  kind: Kind;
-  models: string[];
-  niches: string[];
-  onSubmit: (d: Draft) => Promise<void>;
-}) {
-  const [open, setOpen] = useState(false);
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        className="w-full glass rounded-xl px-4 py-3 text-sm text-muted-foreground hover:text-foreground hover:bg-white/5 flex items-center gap-2 border border-dashed border-white/10"
-      >
-        <Plus className="h-4 w-4" /> Add a {kind}
-      </button>
-    );
-  }
-  return (
-    <div className="glass-strong rounded-xl p-4 space-y-2">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium">New {kind}</p>
-        <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground">
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-      <TrendForm
-        initial={EMPTY}
-        models={models}
-        niches={niches}
-        submitLabel={`Submit ${kind}`}
-        onSubmit={onSubmit}
-      />
     </div>
   );
 }
@@ -458,14 +463,9 @@ function TrendCard({
 
   if (editing) {
     return (
-      <div className="glass-strong rounded-xl p-4">
+      <div className="rounded-xl border border-brand/30 bg-brand/[0.04] p-4">
         <TrendForm
-          initial={{
-            url: t.url,
-            niche: t.niche || "",
-            models: t.models,
-            justification: t.justification,
-          }}
+          initial={{ url: t.url, niche: t.niche || "", models: t.models, justification: t.justification }}
           models={[...new Set([...models, ...t.models])]}
           niches={niches}
           submitLabel="Save and resubmit"
@@ -482,92 +482,95 @@ function TrendCard({
   return (
     <div
       className={cn(
-        "glass rounded-xl p-4 space-y-3 border",
+        "flex gap-4 rounded-xl border bg-background/40 p-3 transition-colors",
         t.status === "approved"
-          ? "border-emerald-500/25"
+          ? "border-[var(--pass)]/30"
           : t.status === "rejected"
-            ? "border-red-500/25"
-            : "border-white/5"
+            ? "border-destructive/30"
+            : "border-border"
       )}
     >
-      <div className="flex items-start gap-2">
-        <a
-          href={t.url}
-          target="_blank"
-          rel="noreferrer"
-          className="text-sm font-medium hover:underline underline-offset-2 flex items-center gap-1.5 min-w-0 flex-1"
-        >
-          <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate">{shortLink(t.url)}</span>
-        </a>
-        <StatusBadge status={t.status} />
-      </div>
+      <ReelPreview url={t.url} kind={t.kind} className="w-28 shrink-0 self-start sm:w-32" />
 
-      <div className="flex flex-wrap gap-1.5">
-        {t.niche && (
-          <Badge className="bg-[oklch(0.75_0.15_200_/_15%)] text-[oklch(0.85_0.1_200)] border-0 text-[10px]">
-            {t.niche}
-          </Badge>
-        )}
-        {t.models.map((m) => (
-          <Badge key={m} className="bg-white/10 border-0 text-[10px]">
-            {m}
-          </Badge>
-        ))}
-      </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-3">
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            {t.niche ? (
+              <p className="truncate text-sm font-semibold">{t.niche}</p>
+            ) : (
+              <p className="text-sm font-semibold text-muted-foreground">No niche</p>
+            )}
+            <a
+              href={t.url}
+              target="_blank"
+              rel="noreferrer"
+              className="block truncate text-xs text-muted-foreground hover:text-foreground hover:underline"
+            >
+              {shortLink(t.url)}
+            </a>
+          </div>
+          <StatusBadge status={t.status} />
+        </div>
 
-      <p className="text-sm text-foreground/90 whitespace-pre-wrap">{t.justification}</p>
+        <div className="flex flex-wrap gap-1">
+          {t.models.map((m) => (
+            <span key={m} className="rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
+              {m}
+            </span>
+          ))}
+        </div>
 
-      {t.reviewNote && (
-        <p className="text-xs rounded-lg bg-red-500/10 text-red-200 px-3 py-2">
-          <span className="font-medium">{t.reviewedBy}:</span> {t.reviewNote}
-        </p>
-      )}
+        <div className="rounded-lg bg-secondary/50 px-3 py-2">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Why it’ll go viral</p>
+          <p className="mt-0.5 whitespace-pre-wrap text-sm">{t.justification}</p>
+        </div>
 
-      <div className="flex items-center gap-1.5 pt-1">
-        <span className="text-[11px] text-muted-foreground flex-1">
-          by {t.createdBy}
-          {t.reviewedBy && t.status !== "pending" && ` · ${t.status} by ${t.reviewedBy}`}
-        </span>
-        {reviewer && t.status !== "approved" && (
-          <Button
-            size="sm"
-            onClick={() => onReview("approved")}
-            className="h-7 px-2 text-xs rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 gap-1"
-          >
-            <ThumbsUp className="h-3 w-3" /> Approve
-          </Button>
+        {t.reviewNote && (
+          <p className="rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+            <span className="font-semibold">{t.reviewedBy}:</span> {t.reviewNote}
+          </p>
         )}
-        {reviewer && t.status !== "rejected" && (
-          <Button
-            size="sm"
-            onClick={() => onReview("rejected")}
-            className="h-7 px-2 text-xs rounded-lg bg-red-500/15 hover:bg-red-500/25 text-red-200 gap-1"
-          >
-            <ThumbsDown className="h-3 w-3" /> Reject
-          </Button>
-        )}
-        {reviewer && t.status !== "pending" && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => onReview("pending")}
-            title="Undo review"
-            className="h-7 w-7 p-0"
-          >
-            <Undo2 className="h-3.5 w-3.5" />
-          </Button>
-        )}
-        {canChange && (
-          <>
-            <Button size="sm" variant="ghost" onClick={() => setEditing(true)} className="h-7 w-7 p-0" title="Edit">
-              <Pencil className="h-3.5 w-3.5" />
+
+        <div className="mt-auto flex flex-wrap items-center gap-1.5">
+          <span className="mr-auto text-xs text-muted-foreground">
+            by {t.createdBy}
+            {t.reviewedBy && t.status !== "pending" && ` · ${t.status} by ${t.reviewedBy}`}
+          </span>
+          {reviewer && t.status !== "approved" && (
+            <Button
+              size="sm"
+              onClick={() => onReview("approved")}
+              className="gap-1 bg-[var(--pass)]/15 text-[var(--pass)] hover:bg-[var(--pass)]/25"
+            >
+              <ThumbsUpIcon weight="bold" className="size-3.5" /> Approve
             </Button>
-            <Button size="sm" variant="ghost" onClick={onDelete} className="h-7 w-7 p-0 hover:text-red-300" title="Delete">
-              <Trash2 className="h-3.5 w-3.5" />
+          )}
+          {reviewer && t.status !== "rejected" && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onReview("rejected")}
+              className="gap-1 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              <ThumbsDownIcon weight="bold" className="size-3.5" /> Reject
             </Button>
-          </>
-        )}
+          )}
+          {reviewer && t.status !== "pending" && (
+            <Button size="icon-sm" variant="ghost" onClick={() => onReview("pending")} title="Undo review">
+              <ArrowCounterClockwiseIcon className="size-4" />
+            </Button>
+          )}
+          {canChange && (
+            <>
+              <Button size="icon-sm" variant="ghost" onClick={() => setEditing(true)} title="Edit">
+                <PencilSimpleIcon className="size-4" />
+              </Button>
+              <Button size="icon-sm" variant="ghost" onClick={onDelete} title="Delete" className="hover:text-destructive">
+                <TrashIcon className="size-4" />
+              </Button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

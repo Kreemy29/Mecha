@@ -57,6 +57,9 @@ export interface MethodRef {
   prompt: string;
   outputPath: string | null;
   thumbnailPath: string | null;
+  // The reference photos/videos the generation was made from (Higgsfield
+  // echoes them back; Yapper's history doesn't, so it's empty there).
+  medias: Array<{ role: string; url: string; type?: string }>;
 }
 
 // Every saved generation across both services, in one shape — the picker the
@@ -73,6 +76,7 @@ export function listMethods(): MethodRef[] {
         prompt: g.prompt,
         outputPath: g.outputPath,
         thumbnailPath: g.thumbnailPath,
+        medias: g.medias ?? [],
       });
     }
   } catch {
@@ -88,6 +92,7 @@ export function listMethods(): MethodRef[] {
         prompt: g.prompt,
         outputPath: g.outputPath,
         thumbnailPath: g.thumbnailPath,
+        medias: g.medias ?? [],
       });
     }
   } catch {

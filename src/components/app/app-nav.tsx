@@ -27,7 +27,7 @@ export function AppNav() {
           <Wordmark label="Studio" tone="dark" className="text-lg" />
         </Link>
 
-        <nav className="flex min-w-0 items-center gap-1 overflow-x-auto">
+        <nav className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {sections.map((s) => (
             <NavLink
               key={s.label}
