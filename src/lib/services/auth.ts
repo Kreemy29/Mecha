@@ -40,6 +40,14 @@ export function ensureAuthTables(): void {
     );
     CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id);
   `);
+  // Contact details for notifications, added after the table existed. Must
+  // run before any Drizzle query on users (it selects every schema column).
+  const cols = new Set(
+    (rawDb.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>).map((c) => c.name)
+  );
+  for (const col of ["email", "telegram_username", "telegram_chat_id", "telegram_link_code"]) {
+    if (!cols.has(col)) rawDb.exec(`ALTER TABLE users ADD COLUMN ${col} TEXT`);
+  }
   ensured = true;
 }
 
@@ -77,6 +85,9 @@ export interface PublicUser {
   name: string;
   role: Role;
   isAdmin: boolean;
+  email: string | null;
+  telegramUsername: string | null;
+  telegramConnected: boolean;
 }
 
 function toPublic(row: typeof schema.users.$inferSelect): PublicUser {
@@ -86,8 +97,25 @@ function toPublic(row: typeof schema.users.$inferSelect): PublicUser {
     name: row.name,
     role: row.role as Role,
     isAdmin: !!row.isAdmin,
+    email: row.email ?? null,
+    telegramUsername: row.telegramUsername ?? null,
+    telegramConnected: !!row.telegramChatId,
   };
 }
+
+const cleanEmail = (v: string | null | undefined) => {
+  const e = (v ?? "").trim().toLowerCase();
+  if (!e) return null;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) throw new Error(`"${e}" isn't a valid email`);
+  return e;
+};
+// "@sara_k" and "sara_k" are the same Telegram username.
+const cleanTelegram = (v: string | null | undefined) => {
+  const t = (v ?? "").trim().replace(/^@/, "");
+  if (!t) return null;
+  if (!/^[A-Za-z0-9_]{4,32}$/.test(t)) throw new Error(`"${t}" isn't a valid Telegram username`);
+  return t;
+};
 
 export function userCount(): number {
   ensureAuthTables();
@@ -105,6 +133,8 @@ export function createUser(input: {
   role: Role;
   password: string;
   isAdmin?: boolean;
+  email?: string | null;
+  telegramUsername?: string | null;
 }): PublicUser {
   ensureAuthTables();
   const username = input.username.trim().toLowerCase();
@@ -129,6 +159,8 @@ export function createUser(input: {
       passwordHash: hash,
       passwordSalt: salt,
       isAdmin: !!input.isAdmin,
+      email: cleanEmail(input.email),
+      telegramUsername: cleanTelegram(input.telegramUsername),
     })
     .returning()
     .get();
@@ -152,15 +184,33 @@ export function setPassword(userId: number, password: string): void {
 
 export function updateUser(
   userId: number,
-  patch: { name?: string; role?: Role; isAdmin?: boolean }
+  patch: {
+    name?: string;
+    role?: Role;
+    isAdmin?: boolean;
+    email?: string | null;
+    telegramUsername?: string | null;
+  }
 ): PublicUser | null {
   ensureAuthTables();
+  const tg = patch.telegramUsername !== undefined ? cleanTelegram(patch.telegramUsername) : undefined;
+  const current =
+    tg !== undefined ? db.select().from(schema.users).where(eq(schema.users.id, userId)).get() : undefined;
   const row = db
     .update(schema.users)
     .set({
       ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
       ...(patch.role !== undefined ? { role: patch.role } : {}),
       ...(patch.isAdmin !== undefined ? { isAdmin: patch.isAdmin } : {}),
+      ...(patch.email !== undefined ? { email: cleanEmail(patch.email) } : {}),
+      // A different Telegram username means a different person's chat: drop
+      // the old connection so messages don't go to the previous account.
+      ...(tg !== undefined
+        ? {
+            telegramUsername: tg,
+            ...(current && (current.telegramUsername ?? null) !== tg ? { telegramChatId: null } : {}),
+          }
+        : {}),
     })
     .where(eq(schema.users.id, userId))
     .returning()

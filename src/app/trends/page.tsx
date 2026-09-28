@@ -32,6 +32,7 @@ import {
   shortLink,
 } from "@/components/department/shared";
 import { ReelPreview } from "@/components/department/reel-preview";
+import { TrendsWorkflowBar } from "@/components/department/workflow-bar";
 
 type Kind = "reel" | "carousel";
 type ReviewStatus = "pending" | "approved" | "rejected";
@@ -195,6 +196,8 @@ export default function TrendsPage() {
       </PageHeader>
 
       <WorkBanners />
+
+      <TrendsWorkflowBar date={date} myCount={trends.filter((t) => t.createdById === me?.id).length} />
 
       {/* Week at a glance */}
       <Card className="gap-0 p-1.5">

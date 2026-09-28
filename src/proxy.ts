@@ -20,6 +20,8 @@ const PUBLIC_PATHS = [
   // The Chrome tracker has no session cookie — it authenticates every call
   // with its own per-user key, checked in the route (services/tracker.ts).
   "/api/tracker/ext",
+  // Telegram's servers call this; the route checks their secret header.
+  "/api/telegram/webhook",
 ];
 
 // Login needs the Render persistent disk (DEPLOY.md step 2): without it the

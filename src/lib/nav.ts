@@ -53,6 +53,7 @@ export const SECTIONS: NavSection[] = [
   {
     label: "Settings",
     pages: [
+      { href: "/profile", label: "My profile" },
       { href: "/settings", label: "Connections" },
       { href: "/tracker", label: "Work tracker" },
       { href: "/admin", label: "Accounts" },
@@ -71,7 +72,7 @@ export function canSee(user: Who, href: string): boolean {
   if (href === "/team" || href === "/timesheets") return can.viewTeam(user);
   if (href === "/admin") return user.isAdmin;
   // Everyone clocks, so everyone gets their own hours and the tracker setup.
-  if (href === "/tracker" || href === "/hours" || href === "/clock") return true;
+  if (href === "/tracker" || href === "/hours" || href === "/clock" || href === "/profile") return true;
   const allowed = NAV_FOR_ROLE[user.role];
   return !allowed || allowed.includes(href);
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { CONSENT_VERSION } from "@/lib/tracking-consent";
+import { ensureAuthTables } from "@/lib/services/auth";
 import {
   clockIn,
   clockOut,
@@ -42,6 +43,7 @@ export async function POST(request: NextRequest) {
   const key = auth.replace(/^Bearer\s+/i, "").trim();
   const userId = key ? userIdForTrackerKey(key) : null;
   if (!userId) return json({ error: "Unknown tracker key" }, 401);
+  ensureAuthTables();
   const user = db.select().from(schema.users).where(eq(schema.users.id, userId)).get();
   if (!user) return json({ error: "Account deleted" }, 401);
 

@@ -1,18 +1,28 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Shield, Loader2, Trash2, UserPlus, KeyRound } from "lucide-react";
+import {
+  BellRingingIcon,
+  CheckCircleIcon,
+  EnvelopeSimpleIcon,
+  KeyIcon,
+  ShieldCheckIcon,
+  SpinnerGapIcon,
+  TelegramLogoIcon,
+  TrashIcon,
+  UserPlusIcon,
+  XCircleIcon,
+} from "@phosphor-icons/react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/department/shared";
 import { ROLES as ROLE_KEYS, ROLE_LABEL, type Role } from "@/lib/roles";
+import { cn } from "@/lib/utils";
 
-const ROLES: { key: Role; label: string }[] = ROLE_KEYS.map((key) => ({
-  key,
-  label: ROLE_LABEL[key],
-}));
+const ROLES: { key: Role; label: string }[] = ROLE_KEYS.map((key) => ({ key, label: ROLE_LABEL[key] }));
 
 interface User {
   id: number;
@@ -20,6 +30,15 @@ interface User {
   name: string;
   role: Role;
   isAdmin: boolean;
+  email: string | null;
+  telegramUsername: string | null;
+  telegramConnected: boolean;
+}
+
+interface Channels {
+  telegram: boolean;
+  email: boolean;
+  bot: string | null;
 }
 
 export default function AdminPage() {
@@ -28,32 +47,37 @@ export default function AdminPage() {
   const [denied, setDenied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [channels, setChannels] = useState<Channels | null>(null);
+  const [hooking, setHooking] = useState(false);
 
   const [username, setUsername] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("content_creator");
   const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("");
+  const [telegram, setTelegram] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [u, s] = await Promise.all([
+      const [u, s, c] = await Promise.all([
         fetch("/api/users").then((r) => r.json()),
         fetch("/api/auth/session").then((r) => r.json()),
+        fetch("/api/telegram").then((r) => r.json()).catch(() => null),
       ]);
-      if (u.error) {
-        setDenied(true);
-      } else {
-        setUsers(u);
-      }
+      if (u.error) setDenied(true);
+      else setUsers(u);
       setMe(s.user ?? null);
+      setChannels(c);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    load();
+    (async () => {
+      await load();
+    })();
   }, [load]);
 
   const create = async () => {
@@ -62,7 +86,7 @@ export default function AdminPage() {
       const res = await fetch("/api/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, name, role, password, isAdmin }),
+        body: JSON.stringify({ username, name, role, password, isAdmin, email, telegramUsername: telegram }),
       });
       const row = await res.json();
       if (row.error) throw new Error(row.error);
@@ -70,6 +94,8 @@ export default function AdminPage() {
       setUsername("");
       setName("");
       setPassword("");
+      setEmail("");
+      setTelegram("");
       setIsAdmin(false);
       toast.success(`Created ${row.name}`);
     } catch (err: unknown) {
@@ -88,22 +114,16 @@ export default function AdminPage() {
     const row = await res.json();
     if (row.error) {
       toast.error(row.error);
-      return;
+      return false;
     }
     setUsers((prev) => prev.map((u) => (u.id === id ? row : u)));
+    return true;
   };
 
   const resetPassword = async (u: User) => {
     const pw = window.prompt(`New password for ${u.name} (min 8 characters):`);
     if (!pw) return;
-    const res = await fetch("/api/users", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: u.id, password: pw }),
-    });
-    const row = await res.json();
-    if (row.error) toast.error(row.error);
-    else toast.success(`Password reset — ${u.name} is signed out everywhere`);
+    if (await patch(u.id, { password: pw })) toast.success(`Password reset. ${u.name} is signed out everywhere.`);
   };
 
   const remove = async (u: User) => {
@@ -117,163 +137,247 @@ export default function AdminPage() {
     setUsers((prev) => prev.filter((x) => x.id !== u.id));
   };
 
+  const connectWebhook = async () => {
+    setHooking(true);
+    try {
+      const res = await fetch("/api/telegram", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "setup" }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      toast.success("Telegram bot connected to this app");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't connect the bot");
+    } finally {
+      setHooking(false);
+    }
+  };
+
   if (loading) {
-    return (
-      <div className="flex justify-center py-20">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <Skeleton className="h-64 rounded-2xl" />;
   }
 
   if (denied) {
     return (
-      <Card>
-        <CardContent className="py-16 text-center space-y-2">
-          <Shield className="h-6 w-6 mx-auto text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">
-            Admins only. Ask an admin if you need access here.
-          </p>
-        </CardContent>
+      <Card className="items-center gap-2 py-16 text-center">
+        <ShieldCheckIcon className="size-6 text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">Admins only. Ask an admin if you need access here.</p>
       </Card>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-semibold tracking-tight">
-          Accounts
-        </h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          Create accounts and assign roles. Nobody picks their own role.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Settings"
+        title="Accounts"
+        subtitle="Create accounts, assign roles, and set where each person's notifications go."
+      />
 
-      <Card>
-        <CardContent className="p-4 space-y-3">
-          <p className="text-sm font-medium flex items-center gap-2">
-            <UserPlus className="h-4 w-4" /> New account
-          </p>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2">
-            <Input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="username"
-              className="glass border-white/10 h-9 text-sm"
-            />
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="display name"
-              className="glass border-white/10 h-9 text-sm"
-            />
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as Role)}
-              className="w-full glass border border-white/10 rounded-md h-9 px-2 text-sm bg-transparent"
-            >
-              {ROLES.map((r) => (
-                <option key={r.key} value={r.key} className="bg-card">
-                  {r.label}
-                </option>
-              ))}
-            </select>
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="password (min 8)"
-              className="glass border-white/10 h-9 text-sm"
-            />
+      {/* Notification channels */}
+      <Card className="gap-0 p-5">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="grid size-9 place-items-center rounded-lg bg-brand/10 text-brand">
+            <BellRingingIcon weight="bold" className="size-5" />
+          </span>
+          <div className="min-w-[14rem] flex-1">
+            <h2 className="text-base font-semibold">Notifications</h2>
+            <p className="text-sm text-muted-foreground">
+              Workflow messages go out on Telegram and by email, to whoever has them set up.
+            </p>
           </div>
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
-              <input
-                type="checkbox"
-                checked={isAdmin}
-                onChange={(e) => setIsAdmin(e.target.checked)}
-                className="accent-brand"
-              />
-              Admin — can manage accounts
-            </label>
-            <Button
-              onClick={create}
-              disabled={busy || !username.trim() || password.length < 8}
-              className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
-            >
-              {busy ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <UserPlus className="h-4 w-4" />
-              )}
-              Create
+          <Channel on={!!channels?.telegram} label={channels?.bot ? `Telegram @${channels.bot}` : "Telegram"} Icon={TelegramLogoIcon} />
+          <Channel on={!!channels?.email} label="Gmail" Icon={EnvelopeSimpleIcon} />
+          {channels?.telegram && (
+            <Button variant="outline" size="sm" onClick={connectWebhook} disabled={hooking} className="gap-1.5">
+              {hooking && <SpinnerGapIcon className="size-4 animate-spin" />}
+              Connect bot webhook
             </Button>
-          </div>
-        </CardContent>
+          )}
+        </div>
+        {(!channels?.telegram || !channels?.email) && (
+          <p className="mt-3 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
+            {!channels?.telegram && "Telegram: set TELEGRAM_BOT_TOKEN on the server (from @BotFather), then click “Connect bot webhook”. "}
+            {!channels?.email && "Email: set GMAIL_USER and GMAIL_APP_PASSWORD (a Google App Password) on the server."}
+          </p>
+        )}
       </Card>
 
-      <div className="space-y-2">
-        {users.map((u) => (
-          <Card key={u.id}>
-            <CardContent className="p-3 flex items-center gap-3 flex-wrap">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium truncate">
-                  {u.name}{" "}
-                  <span className="text-muted-foreground font-normal">
-                    @{u.username}
-                  </span>
-                  {me?.id === u.id && (
-                    <Badge className="ml-2 text-[10px] bg-white/5 border-white/10">
-                      you
-                    </Badge>
-                  )}
-                </p>
-              </div>
-              <select
-                value={u.role}
-                onChange={(e) => patch(u.id, { role: e.target.value })}
-                className="glass border border-white/10 rounded-md h-8 px-2 text-xs bg-transparent"
-              >
-                {ROLES.map((r) => (
-                  <option key={r.key} value={r.key} className="bg-card">
-                    {r.label}
-                  </option>
-                ))}
-              </select>
-              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={u.isAdmin}
-                  onChange={(e) => patch(u.id, { isAdmin: e.target.checked })}
-                  className="accent-brand"
-                />
-                admin
-              </label>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => resetPassword(u)}
-                title="Set a new password"
-                className="rounded-xl border-white/10 px-2"
-              >
-                <KeyRound className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => remove(u)}
-                disabled={me?.id === u.id}
-                title={
-                  me?.id === u.id ? "You can't delete yourself" : "Delete account"
-                }
-                className="rounded-xl border-white/10 px-2 hover:bg-red-500/20"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {/* New account */}
+      <Card className="gap-0 p-5">
+        <p className="flex items-center gap-2 text-base font-semibold">
+          <UserPlusIcon weight="bold" className="size-4 text-brand" /> New account
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
+          <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username (to sign in)" />
+          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password (min 8)" />
+          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Work email" />
+          <Input value={telegram} onChange={(e) => setTelegram(e.target.value)} placeholder="Telegram @username" />
+          <select
+            value={role}
+            onChange={(e) => setRole(e.target.value as Role)}
+            className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
+          >
+            {ROLES.map((r) => (
+              <option key={r.key} value={r.key}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+            <input type="checkbox" checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} className="accent-brand" />
+            Admin: can manage accounts
+          </label>
+          <Button
+            onClick={create}
+            disabled={busy || !username.trim() || password.length < 8}
+            className="gap-2 bg-brand text-brand-foreground hover:bg-brand/90"
+          >
+            {busy ? <SpinnerGapIcon className="size-4 animate-spin" /> : <UserPlusIcon className="size-4" />}
+            Create account
+          </Button>
+        </div>
+      </Card>
+
+      {/* Accounts */}
+      <Card className="gap-0 overflow-x-auto p-0">
+        <table className="w-full min-w-[900px] text-sm">
+          <thead>
+            <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
+              <th className="px-5 py-2.5 text-left font-medium">Person</th>
+              <th className="px-3 py-2.5 text-left font-medium">Role</th>
+              <th className="px-3 py-2.5 text-left font-medium">Work email</th>
+              <th className="px-3 py-2.5 text-left font-medium">Telegram</th>
+              <th className="px-3 py-2.5 text-center font-medium">Admin</th>
+              <th className="px-5 py-2.5" />
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((u) => (
+              <tr key={u.id} className="border-b border-border last:border-0">
+                <td className="px-5 py-2.5">
+                  <p className="font-medium">
+                    {u.name}
+                    {me?.id === u.id && <span className="ml-2 rounded-full bg-secondary px-1.5 py-0.5 text-[10px]">you</span>}
+                  </p>
+                  <p className="text-xs text-muted-foreground">@{u.username}</p>
+                </td>
+                <td className="px-3 py-2.5">
+                  <select
+                    value={u.role}
+                    onChange={(e) => patch(u.id, { role: e.target.value })}
+                    className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
+                  >
+                    {ROLES.map((r) => (
+                      <option key={r.key} value={r.key}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td className="px-3 py-2.5">
+                  <InlineField
+                    value={u.email}
+                    placeholder="name@oneupmedia.io"
+                    onSave={(v) => patch(u.id, { email: v })}
+                  />
+                </td>
+                <td className="px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <InlineField
+                      value={u.telegramUsername ? `@${u.telegramUsername}` : null}
+                      placeholder="@username"
+                      onSave={(v) => patch(u.id, { telegramUsername: v })}
+                    />
+                    <span
+                      title={u.telegramConnected ? "Connected to the bot" : "Not connected yet: they press Connect Telegram on their profile"}
+                      className={cn("shrink-0", u.telegramConnected ? "text-[var(--pass)]" : "text-muted-foreground/50")}
+                    >
+                      {u.telegramConnected ? <CheckCircleIcon weight="fill" className="size-4" /> : <XCircleIcon className="size-4" />}
+                    </span>
+                  </div>
+                </td>
+                <td className="px-3 py-2.5 text-center">
+                  <input
+                    type="checkbox"
+                    checked={u.isAdmin}
+                    onChange={(e) => patch(u.id, { isAdmin: e.target.checked })}
+                    className="accent-brand"
+                  />
+                </td>
+                <td className="px-5 py-2.5">
+                  <div className="flex justify-end gap-1">
+                    <Button size="icon-sm" variant="ghost" onClick={() => resetPassword(u)} title="Set a new password">
+                      <KeyIcon className="size-4" />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      onClick={() => remove(u)}
+                      disabled={me?.id === u.id}
+                      title={me?.id === u.id ? "You can't delete yourself" : "Delete account"}
+                      className="hover:text-destructive"
+                    >
+                      <TrashIcon className="size-4" />
+                    </Button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
     </div>
+  );
+}
+
+function Channel({ on, label, Icon }: { on: boolean; label: string; Icon: typeof TelegramLogoIcon }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+        on ? "bg-[var(--pass)]/12 text-[var(--pass)]" : "bg-secondary text-muted-foreground"
+      )}
+    >
+      <Icon weight="fill" className="size-3.5" />
+      {label} · {on ? "set up" : "not set up"}
+    </span>
+  );
+}
+
+// Text that saves when you leave the field (or press Enter), and only if it changed.
+function InlineField({
+  value,
+  placeholder,
+  onSave,
+}: {
+  value: string | null;
+  placeholder: string;
+  onSave: (v: string) => Promise<boolean>;
+}) {
+  const [draft, setDraft] = useState(value ?? "");
+  const [saving, setSaving] = useState(false);
+  const commit = async () => {
+    if (draft.trim() === (value ?? "")) return;
+    setSaving(true);
+    const ok = await onSave(draft.trim());
+    setSaving(false);
+    if (!ok) setDraft(value ?? "");
+  };
+  return (
+    <Input
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      placeholder={placeholder}
+      disabled={saving}
+      className="h-8 min-w-44 text-sm"
+    />
   );
 }

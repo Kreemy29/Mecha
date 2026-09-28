@@ -12,6 +12,7 @@ import {
   SignOutIcon,
   SpinnerGapIcon,
   TimerIcon,
+  UserCircleIcon,
 } from "@phosphor-icons/react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
@@ -99,6 +100,10 @@ export function UserMenu({
             </span>
           </div>
           <div className="my-1 h-px bg-border" />
+          <Link href="/profile" role="menuitem" onClick={() => setOpen(false)} className={item}>
+            <UserCircleIcon className="size-4" />
+            My profile
+          </Link>
           <Link href="/hours" role="menuitem" onClick={() => setOpen(false)} className={item}>
             <TimerIcon className="size-4" />
             My hours

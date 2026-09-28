@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: gate.error }, { status: gate.status });
   }
   try {
-    const { username, name, role, password, isAdmin } = await request.json();
+    const { username, name, role, password, isAdmin, email, telegramUsername } = await request.json();
     if (!isRole(role)) {
       return NextResponse.json({ error: "Pick a valid role" }, { status: 400 });
     }
@@ -44,6 +44,8 @@ export async function POST(request: NextRequest) {
       role,
       password,
       isAdmin: !!isAdmin,
+      email,
+      telegramUsername,
     });
     return NextResponse.json(user, { status: 201 });
   } catch (err: unknown) {
@@ -58,7 +60,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: gate.error }, { status: gate.status });
   }
   try {
-    const { id, name, role, isAdmin, password } = await request.json();
+    const { id, name, role, isAdmin, password, email, telegramUsername } = await request.json();
     if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
     if (role !== undefined && !isRole(role)) {
       return NextResponse.json({ error: "Pick a valid role" }, { status: 400 });
@@ -72,7 +74,7 @@ export async function PATCH(request: NextRequest) {
       );
     }
     if (password) setPassword(id, password);
-    const user = updateUser(id, { name, role, isAdmin });
+    const user = updateUser(id, { name, role, isAdmin, email, telegramUsername });
     return NextResponse.json(user);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

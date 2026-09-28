@@ -158,6 +158,12 @@ export const users = sqliteTable("users", {
   passwordHash: text("password_hash").notNull(),
   passwordSalt: text("password_salt").notNull(),
   isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
+  // Where notifications go (services/notify.ts). The Telegram chat id only
+  // exists once the person has pressed Start on the bot via their link.
+  email: text("email"),
+  telegramUsername: text("telegram_username"),
+  telegramChatId: text("telegram_chat_id"),
+  telegramLinkCode: text("telegram_link_code"),
   createdAt: text("created_at")
     .notNull()
     .default(sql`(datetime('now'))`),

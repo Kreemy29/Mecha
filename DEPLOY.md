@@ -49,6 +49,18 @@ symlinks `./data` and `./storage` onto it at boot.
 - Wan Animate: `RUNNINGHUB_API_KEY`, `RUNNINGHUB_WAN_APP_ID`, the node ids, `RUNNINGHUB_INSTANCE_TYPE=plus`
 - Instagram browsing/download: `APIFY_TOKEN` (from [console.apify.com/settings/integrations](https://console.apify.com/settings/integrations))
 - Pinterest via a paid RapidAPI endpoint instead of the built-in scraper: `RAPIDAPI_KEY`, `RAPIDAPI_PINTEREST_HOST`
+- Workflow notifications (research done → review → tasks → finished → uploaded):
+  - Telegram: `TELEGRAM_BOT_TOKEN`. Create the bot in Telegram with **@BotFather**
+    (`/newbot`, pick a name like "OneUp Studio" and a username ending in `bot`),
+    copy the token it gives you. After deploying, go to **Settings → Accounts**
+    and click **Connect bot webhook** once. Everyone then connects their own
+    chat from **Settings → My profile → Connect Telegram**.
+  - Email: `GMAIL_USER` (e.g. `studio@oneupmedia.io`) and `GMAIL_APP_PASSWORD`.
+    The App Password comes from that Google account: myaccount.google.com →
+    Security → 2-Step Verification (must be on) → App passwords → create one
+    named "OneUp". Paste the 16 characters; spaces don't matter.
+  - Optional `APP_URL` (e.g. `https://mecha-3-u433.onrender.com`) for the links
+    in messages; otherwise the address the button was clicked on is used.
 
 **Do NOT set `NODE_TLS_REJECT_UNAUTHORIZED=0`.** That is a workaround for the
 dev machine's TLS-intercepting proxy. In production it disables certificate

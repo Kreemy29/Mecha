@@ -46,6 +46,13 @@ export function ensureProductionTables(): void {
     );
     CREATE INDEX IF NOT EXISTS task_items_task ON task_items (task_id);
   `);
+  // Workflow milestones (services/workflow.ts), added after the table existed.
+  const cols = new Set(
+    (rawDb.prepare("PRAGMA table_info(production_tasks)").all() as Array<{ name: string }>).map((c) => c.name)
+  );
+  for (const col of ["sent_at", "finished_at", "uploaded_at", "upload_url"]) {
+    if (!cols.has(col)) rawDb.exec(`ALTER TABLE production_tasks ADD COLUMN ${col} TEXT`);
+  }
   ensured = true;
 }
 
@@ -126,6 +133,11 @@ export interface ProductionTask {
   createdBy: string;
   createdAt: string;
   items: TaskItem[];
+  // Workflow: sent to the creator, finished by them, uploaded to Drive.
+  sentAt: string | null;
+  finishedAt: string | null;
+  uploadedAt: string | null;
+  uploadUrl: string | null;
 }
 
 interface TaskRow {
@@ -141,6 +153,10 @@ interface TaskRow {
   due_date: string;
   creator_name: string | null;
   created_at: string;
+  sent_at: string | null;
+  finished_at: string | null;
+  uploaded_at: string | null;
+  upload_url: string | null;
 }
 
 interface ItemRow {
@@ -231,6 +247,10 @@ export function listTasks(filter: {
       createdBy: r.creator_name || "(deleted user)",
       createdAt: r.created_at,
       items: items.filter((i) => i.task_id === r.id).map(toItem),
+      sentAt: r.sent_at,
+      finishedAt: r.finished_at,
+      uploadedAt: r.uploaded_at,
+      uploadUrl: r.upload_url,
     };
   });
 }

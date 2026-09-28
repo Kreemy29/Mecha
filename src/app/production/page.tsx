@@ -38,6 +38,7 @@ import {
   WorkBanners,
 } from "@/components/department/shared";
 import { ReelPreview } from "@/components/department/reel-preview";
+import { reportNotified, type NotifyResult } from "@/components/department/workflow-bar";
 
 interface Trend {
   id: number;
@@ -89,6 +90,11 @@ interface Task {
   dueDate: string;
   createdBy: string;
   items: Item[];
+  // Workflow: sent to the creator → finished by them → uploaded to Drive.
+  sentAt: string | null;
+  finishedAt: string | null;
+  uploadedAt: string | null;
+  uploadUrl: string | null;
 }
 
 interface Person {
@@ -169,6 +175,37 @@ export default function ProductionPage() {
 
   const openCount = tasks.filter((t) => !isDone(t)).length;
   const toReview = tasks.reduce((n, t) => n + t.items.filter((i) => i.status === "submitted").length, 0);
+  const unsent = tasks.filter((t) => !t.sentAt).length;
+  const [sending, setSending] = useState(false);
+
+  // Step 3: message each creator the tasks that haven't been sent yet.
+  const sendAll = async () => {
+    setSending(true);
+    try {
+      const res = await fetch("/api/workflow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "send_tasks" }),
+      });
+      const d = await res.json();
+      if (d.error) throw new Error(d.error);
+      const merged = (d.results as NotifyResult[]).reduce(
+        (a, r) => ({
+          recipients: a.recipients + r.recipients,
+          telegram: a.telegram + r.telegram,
+          email: a.email + r.email,
+          unreachable: [...a.unreachable, ...r.unreachable],
+        }),
+        { recipients: 0, telegram: 0, email: 0, unreachable: [] as string[] }
+      );
+      reportNotified(`Sent ${d.tasks} task${d.tasks === 1 ? "" : "s"} to ${d.creators} creator${d.creators === 1 ? "" : "s"}`, merged);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't send");
+    } finally {
+      setSending(false);
+    }
+  };
 
   const act = async (itemId: number, action: "submit" | "approve" | "reject", extra: Record<string, unknown> = {}) => {
     try {
@@ -212,6 +249,17 @@ export default function ProductionPage() {
               <span>
                 <span className="tnum font-semibold text-chart-2">{toReview}</span> to review
               </span>
+            )}
+            {manager && (
+              <Button
+                onClick={sendAll}
+                disabled={sending || unsent === 0}
+                title={unsent === 0 ? "Every task has been sent" : "Message each creator their new tasks"}
+                className="gap-1.5 bg-brand text-brand-foreground hover:bg-brand/90"
+              >
+                {sending ? <SpinnerGapIcon className="size-4 animate-spin" /> : <PaperPlaneTiltIcon className="size-4" />}
+                {unsent ? `Send tasks (${unsent} new)` : "All tasks sent"}
+              </Button>
             )}
           </div>
         )}
@@ -315,6 +363,7 @@ export default function ProductionPage() {
                 mine={t.assigneeId === me?.id}
                 onAct={act}
                 onDelete={() => removeTask(t)}
+                onChanged={load}
               />
             ))
           )}
@@ -464,16 +513,19 @@ function TaskCard({
   mine,
   onAct,
   onDelete,
+  onChanged,
 }: {
   task: Task;
   manager: boolean;
   mine: boolean;
   onAct: (itemId: number, action: "submit" | "approve" | "reject", extra?: Record<string, unknown>) => Promise<void>;
   onDelete: () => void;
+  onChanged: () => Promise<void>;
 }) {
   const done = t.items.filter((i) => i.status === "approved").length;
   const overdue = !isDone(t) && t.dueDate < todayLocal();
   const pct = t.items.length ? Math.round((done / t.items.length) * 100) : 0;
+  const stage = t.uploadedAt ? "Uploaded" : t.finishedAt ? "Finished" : t.sentAt ? "Sent" : "Not sent yet";
 
   return (
     <div className="rounded-xl border border-border bg-background/40">
@@ -486,6 +538,17 @@ function TaskCard({
         <span className={cn("text-xs", overdue ? "font-medium text-destructive" : "text-muted-foreground")}>
           Due {prettyDate(t.dueDate)}
           {overdue && " · overdue"}
+        </span>
+        <span
+          className={cn(
+            "rounded-full px-2 py-0.5 text-[11px] font-medium",
+            stage === "Uploaded" && "bg-[var(--pass)]/12 text-[var(--pass)]",
+            stage === "Finished" && "bg-chart-2/15 text-chart-2",
+            stage === "Sent" && "bg-brand/10 text-brand",
+            stage === "Not sent yet" && "bg-secondary text-muted-foreground"
+          )}
+        >
+          {stage}
         </span>
         <div className="ml-auto flex items-center gap-3">
           {(manager || !mine) && <span className="text-xs text-muted-foreground">{t.assignee}</span>}
@@ -562,6 +625,108 @@ function TaskCard({
           ))}
         </div>
       </div>
+
+      <TaskWorkflow task={t} manager={manager} mine={mine} onChanged={onChanged} />
+    </div>
+  );
+}
+
+// Steps 4 and 5 of the hand-off, at the foot of each task:
+//   creator → "I'm finished" (once every model is handed in) → tells the managers
+//   manager → "Uploaded to Drive" with the folder link → tells marketing
+function TaskWorkflow({
+  task: t,
+  manager,
+  mine,
+  onChanged,
+}: {
+  task: Task;
+  manager: boolean;
+  mine: boolean;
+  onChanged: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [folder, setFolder] = useState(t.uploadUrl ?? "");
+  const outstanding = t.items.filter((i) => i.status === "todo" || i.status === "rejected");
+
+  const run = async (action: "task_finished" | "task_uploaded") => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/workflow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, taskId: t.id, url: folder }),
+      });
+      const d = await res.json();
+      if (d.error) throw new Error(d.error);
+      reportNotified(action === "task_finished" ? "Sent to the manager" : "Marketing told it's uploaded", d.notified);
+      await onChanged();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "That didn't go through");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const creatorCan = mine && !t.finishedAt;
+  const managerCan = manager && !t.uploadedAt && (!!t.finishedAt || isDone(t));
+  if (!creatorCan && !managerCan && !t.finishedAt && !t.uploadedAt) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 border-t border-border bg-secondary/30 px-4 py-3">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        {t.finishedAt && (
+          <span className="inline-flex items-center gap-1.5">
+            <CheckCircleIcon weight="fill" className="size-4 text-chart-2" />
+            {mine ? "You" : t.assignee} finished · {new Date(t.finishedAt).toLocaleString()}
+          </span>
+        )}
+        {t.uploadedAt && (
+          <span className="inline-flex items-center gap-1.5">
+            <CheckCircleIcon weight="fill" className="size-4 text-[var(--pass)]" />
+            Uploaded to Drive · {new Date(t.uploadedAt).toLocaleString()}
+            {t.uploadUrl && (
+              <a href={t.uploadUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-foreground hover:underline">
+                Open folder <ArrowSquareOutIcon className="size-3.5" />
+              </a>
+            )}
+          </span>
+        )}
+        {creatorCan && outstanding.length > 0 && (
+          <span>Hand in {outstanding.map((i) => i.model).join(", ")} to finish.</span>
+        )}
+      </div>
+
+      {creatorCan && (
+        <Button
+          onClick={() => run("task_finished")}
+          disabled={busy || outstanding.length > 0}
+          className="gap-1.5 bg-brand text-brand-foreground hover:bg-brand/90"
+        >
+          {busy ? <SpinnerGapIcon className="size-4 animate-spin" /> : <CheckCircleIcon weight="bold" className="size-4" />}
+          {"I'm finished"}
+        </Button>
+      )}
+
+      {managerCan && (
+        <div className="flex w-full gap-1.5 sm:w-auto">
+          <Input
+            value={folder}
+            onChange={(e) => setFolder(e.target.value)}
+            placeholder="Shared Drive folder link"
+            className="h-8 text-sm sm:w-72"
+          />
+          <Button
+            size="sm"
+            onClick={() => run("task_uploaded")}
+            disabled={busy || !folder.trim()}
+            className="shrink-0 gap-1.5 bg-brand text-brand-foreground hover:bg-brand/90"
+          >
+            {busy ? <SpinnerGapIcon className="size-3.5 animate-spin" /> : <PaperPlaneTiltIcon className="size-3.5" />}
+            Uploaded to Drive
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
