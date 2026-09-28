@@ -12,6 +12,7 @@
       h1 { font-size: 14px; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
       .dot { width: 8px; height: 8px; border-radius: 50%; background: #555; }
       .dot.on { background: #10b981; }
+      .dot.brk { background: #b5820a; }
       label { display: block; font-size: 11px; color: #9a9aa8; margin: 8px 0 4px; }
       input {
         width: 100%; box-sizing: border-box; padding: 7px 8px; border-radius: 8px;
@@ -44,6 +45,7 @@
     <section id="main" hidden>
       <p id="who"></p>
       <p id="state" class="muted"></p>
+      <button id="breakBtn" class="out"></button>
       <button id="clock"></button>
       <p class="muted" style="margin-top:10px">
         While you're clocked in, the sites and tabs you use in this Chrome profile are shared with your managers.

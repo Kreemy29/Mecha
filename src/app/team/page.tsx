@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { Globe, Moon, MonitorOff, Shield, Timer } from "lucide-react";
+import { AppWindow, Globe, Moon, MonitorOff, Shield, Timer } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -16,11 +16,13 @@ interface Session {
   clockOut: string | null;
   lastSeen: string;
   autoClosed: boolean;
+  breaks: Array<{ id: number; start: string; end: string | null }>;
 }
 
 interface TimelineEntry {
-  kind: "browse" | "idle" | "away";
+  kind: "browse" | "app" | "idle" | "away";
   domain: string | null;
+  app: string | null;
   title: string | null;
   start: string;
   end: string;
@@ -33,9 +35,16 @@ interface PersonDay {
   clockedIn: boolean;
   sessions: Session[];
   workedSeconds: number;
+  breakSeconds: number;
+  onBreak: boolean;
   tracker: { hasKey: boolean; lastUsedAt: string | null };
+  consent: { accepted: boolean };
   activity: {
     browseSeconds: number;
+    appSeconds: number;
+    hasDesktop: boolean;
+    apps: Array<{ app: string; seconds: number }>;
+    windows?: Array<{ app: string; title: string; seconds: number }>;
     idleSeconds: number;
     awaySeconds: number;
     domains: Array<{ domain: string; seconds: number }>;
@@ -102,7 +111,7 @@ export default function TeamPage() {
                 <th className="text-left font-medium px-3 py-2.5">Clock</th>
                 <th className="text-right font-medium px-3 py-2.5">Worked</th>
                 <th className="text-left font-medium px-3 py-2.5">Chrome</th>
-                <th className="text-left font-medium px-3 py-2.5">Top sites</th>
+                <th className="text-left font-medium px-3 py-2.5">Top apps &amp; sites</th>
                 <th className="text-left font-medium px-3 py-2.5">Output</th>
               </tr>
             </thead>
@@ -110,7 +119,9 @@ export default function TeamPage() {
               {sorted.map((p) => {
                 const first = p.sessions[0];
                 const last = p.sessions[p.sessions.length - 1];
-                const tracked = p.activity.browseSeconds + p.activity.idleSeconds + p.activity.awaySeconds;
+                // With the desktop tracker, app time already includes the browser; else Chrome is all we know.
+                const active = p.activity.hasDesktop ? p.activity.appSeconds : p.activity.browseSeconds;
+                const tracked = active + p.activity.idleSeconds + p.activity.awaySeconds;
                 return (
                   <Fragment key={p.id}>
                     <tr
@@ -125,8 +136,9 @@ export default function TeamPage() {
                           <span
                             className={cn(
                               "h-2 w-2 rounded-full",
-                              p.clockedIn ? "bg-emerald-400" : "bg-white/15"
+                              p.onBreak ? "bg-[var(--review)]" : p.clockedIn ? "bg-[var(--pass)]" : "bg-border"
                             )}
+                            title={p.onBreak ? "On break" : p.clockedIn ? "On the clock" : "Clocked out"}
                           />
                           {p.name}
                         </p>
@@ -148,30 +160,41 @@ export default function TeamPage() {
                       </td>
                       <td className="px-3 py-3 text-right font-medium tabular-nums">
                         {p.workedSeconds ? formatDuration(p.workedSeconds) : "–"}
+                        {p.breakSeconds > 0 && (
+                          <span className="block text-[11px] font-normal text-muted-foreground">
+                            {formatDuration(p.breakSeconds)} break
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-3 w-48">
                         {tracked > 0 ? (
                           <div className="space-y-1">
                             <div className="flex h-1.5 rounded-full overflow-hidden bg-white/5">
-                              <div className="bg-emerald-400/80" style={{ width: `${(p.activity.browseSeconds / tracked) * 100}%` }} />
+                              <div className="bg-emerald-400/80" style={{ width: `${(active / tracked) * 100}%` }} />
                               <div className="bg-amber-400/70" style={{ width: `${(p.activity.idleSeconds / tracked) * 100}%` }} />
                               <div className="bg-white/25" style={{ width: `${(p.activity.awaySeconds / tracked) * 100}%` }} />
                             </div>
                             <p className="text-[10px] text-muted-foreground flex gap-2">
-                              <span className="text-emerald-300">{formatDuration(p.activity.browseSeconds)} active</span>
+                              <span className="text-emerald-300">{formatDuration(active)} active</span>
                               <span className="text-amber-300">{formatDuration(p.activity.idleSeconds)} idle</span>
                               <span>{formatDuration(p.activity.awaySeconds)} away</span>
                             </p>
                           </div>
                         ) : (
                           <span className="text-[11px] text-muted-foreground">
-                            {p.tracker.hasKey ? "no activity" : "tracker not set up"}
+                            {!p.consent.accepted ? "no permission given" : p.tracker.hasKey ? "no activity" : "tracker not set up"}
                           </span>
                         )}
                       </td>
                       <td className="px-3 py-3">
                         <div className="flex flex-wrap gap-1">
-                          {p.activity.domains.slice(0, 4).map((d) => (
+                          {p.activity.apps.slice(0, 3).map((a) => (
+                            <Badge key={`app:${a.app}`} className="gap-1 border-0 bg-brand/10 text-[10px] font-normal text-foreground">
+                              <AppWindow className="size-3 text-brand" />
+                              {a.app} <span className="ml-1 text-muted-foreground">{formatDuration(a.seconds)}</span>
+                            </Badge>
+                          ))}
+                          {p.activity.domains.slice(0, p.activity.apps.length ? 2 : 4).map((d) => (
                             <Badge key={d.domain} className="bg-white/5 border-0 text-[10px] font-normal">
                               {d.domain} <span className="text-muted-foreground ml-1">{formatDuration(d.seconds)}</span>
                             </Badge>
@@ -214,7 +237,7 @@ export default function TeamPage() {
   );
 }
 
-const KIND_ICON = { browse: Globe, idle: Moon, away: MonitorOff };
+const KIND_ICON = { browse: Globe, app: AppWindow, idle: Moon, away: MonitorOff };
 
 function PersonDetail({ person: p }: { person: PersonDay }) {
   const timeline = p.activity.timeline;
@@ -231,18 +254,35 @@ function PersonDetail({ person: p }: { person: PersonDay }) {
           <p className="text-xs text-muted-foreground">None.</p>
         ) : (
           p.sessions.map((s) => (
-            <p key={s.id} className="text-xs text-muted-foreground">
-              {clockTime(s.clockIn)} → {s.clockOut ? clockTime(s.clockOut) : "now"}
-              {s.autoClosed && <span className="text-amber-300"> (auto-closed, last seen {clockTime(s.lastSeen)})</span>}
-            </p>
+            <div key={s.id} className="space-y-0.5">
+              <p className="text-xs text-muted-foreground">
+                {clockTime(s.clockIn)} → {s.clockOut ? clockTime(s.clockOut) : "now"}
+                {s.autoClosed && <span className="text-[var(--review)]"> (auto-closed, last seen {clockTime(s.lastSeen)})</span>}
+              </p>
+              {s.breaks.map((b) => (
+                <p key={b.id} className="pl-3 text-[11px] text-[var(--review)]">
+                  break {clockTime(b.start)} → {b.end ? clockTime(b.end) : "now"}
+                </p>
+              ))}
+            </div>
           ))
         )}
       </div>
 
       <div className="space-y-2">
         <p className="text-xs font-semibold">Most time spent on</p>
-        {pages.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No tracked pages.</p>
+        {(p.activity.windows ?? []).slice(0, 8).map((w) => (
+          <div key={`${w.app}|${w.title}`} className="flex items-center gap-2 text-xs">
+            <AppWindow className="size-3 shrink-0 text-brand" />
+            <span className="flex-1 truncate" title={w.title}>
+              <span className="font-medium">{w.app}</span>
+              {w.title && <span className="text-muted-foreground"> - {w.title}</span>}
+            </span>
+            <span className="tabular-nums text-muted-foreground">{formatDuration(w.seconds)}</span>
+          </div>
+        ))}
+        {pages.length === 0 && !(p.activity.windows ?? []).length ? (
+          <p className="text-xs text-muted-foreground">Nothing tracked.</p>
         ) : (
           pages.slice(0, 12).map((pg) => (
             <div key={pg.url} className="flex items-center gap-2 text-xs">
@@ -269,11 +309,19 @@ function PersonDetail({ person: p }: { person: PersonDay }) {
                   <Icon
                     className={cn(
                       "h-3 w-3 shrink-0",
-                      e.kind === "browse" ? "text-emerald-300" : e.kind === "idle" ? "text-amber-300" : "text-muted-foreground"
+                      e.kind === "app" ? "text-brand" : e.kind === "browse" ? "text-emerald-300" : e.kind === "idle" ? "text-amber-300" : "text-muted-foreground"
                     )}
                   />
                   <span className="truncate">
-                    {e.kind === "browse" ? e.title || e.domain : e.kind === "idle" ? "Idle" : "Outside Chrome"}
+                    {e.kind === "app"
+                      ? `${e.app}${e.title ? ` - ${e.title}` : ""}`
+                      : e.kind === "browse"
+                        ? e.title || e.domain
+                        : e.kind === "idle"
+                          ? "Idle"
+                          : p.activity.hasDesktop
+                            ? "Away from the computer"
+                            : "Outside Chrome"}
                   </span>
                   <span className="text-muted-foreground ml-auto shrink-0">
                     {formatDuration(Math.round((Date.parse(e.end) - Date.parse(e.start)) / 1000))}

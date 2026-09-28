@@ -16,6 +16,7 @@ import {
   prettyDate,
   rangeBounds,
   secondsByDay,
+  sessionBreakSecondsWithin,
   sessionSecondsWithin,
   startOfMonth,
   startOfWeek,
@@ -30,7 +31,13 @@ interface Session {
   clockOut: string | null;
   lastSeen: string;
   autoClosed: boolean;
+  breaks: Array<{ start: string; end: string | null }>;
+  onBreak: boolean;
 }
+
+// Whole-session bounds for the per-session columns (the range filter is
+// applied separately, when the list is built).
+const ALL_TIME = { from: "1970-01-01T00:00:00.000Z", to: "9999-12-31T00:00:00.000Z" };
 
 // Your own timesheet: today / week / month totals, hours per day for the
 // picked range, and every clock-in session behind them.
@@ -123,7 +130,8 @@ export default function HoursPage() {
                 <th className="px-5 py-2.5 text-left font-medium">Day</th>
                 <th className="px-3 py-2.5 text-left font-medium">Clock in</th>
                 <th className="px-3 py-2.5 text-left font-medium">Clock out</th>
-                <th className="px-5 py-2.5 text-right font-medium">Duration</th>
+                <th className="px-3 py-2.5 text-right font-medium">Breaks</th>
+                <th className="px-5 py-2.5 text-right font-medium">Worked</th>
               </tr>
             </thead>
             <tbody>
@@ -135,8 +143,13 @@ export default function HoursPage() {
                     <td className="tnum px-3 py-2.5">{clockTime(s.clockIn)}</td>
                     <td className="tnum px-3 py-2.5">
                       {open ? (
-                        <span className="inline-flex items-center gap-1.5 text-[var(--pass)]">
-                          <TimerIcon weight="fill" className="size-3.5" /> on the clock
+                        <span
+                          className={cn(
+                            "inline-flex items-center gap-1.5",
+                            s.onBreak ? "text-[var(--review)]" : "text-[var(--pass)]"
+                          )}
+                        >
+                          <TimerIcon weight="fill" className="size-3.5" /> {s.onBreak ? "on break" : "on the clock"}
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5">
@@ -152,8 +165,13 @@ export default function HoursPage() {
                         </span>
                       )}
                     </td>
+                    <td className="tnum px-3 py-2.5 text-right text-muted-foreground">
+                      {s.breaks.length > 0
+                        ? `${formatDuration(sessionBreakSecondsWithin(s, ALL_TIME.from, ALL_TIME.to))} · ${s.breaks.length}`
+                        : "–"}
+                    </td>
                     <td className="tnum px-5 py-2.5 text-right font-medium">
-                      {formatDuration(sessionSecondsWithin(s, s.clockIn, s.clockOut ?? s.lastSeen))}
+                      {formatDuration(sessionSecondsWithin(s, ALL_TIME.from, ALL_TIME.to))}
                     </td>
                   </tr>
                 );

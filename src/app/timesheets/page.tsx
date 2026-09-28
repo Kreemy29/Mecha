@@ -17,6 +17,7 @@ import {
   parseLocalDate,
   rangeBounds,
   secondsByDay,
+  sessionBreakSecondsWithin,
   toLocalDate,
   todayLocal,
 } from "@/lib/day";
@@ -28,6 +29,8 @@ interface Session {
   clockOut: string | null;
   lastSeen: string;
   autoClosed: boolean;
+  breaks: Array<{ start: string; end: string | null }>;
+  onBreak: boolean;
 }
 
 interface Person {
@@ -76,16 +79,19 @@ export default function TimesheetsPage() {
         .map((p) => {
           const perDay = secondsByDay(p.sessions, days);
           const total = days.reduce((s, d) => s + perDay[d], 0);
+          const { from: rFrom, to: rTo } = rangeBounds(picked.from, picked.to);
+          const breakTotal = p.sessions.reduce((s, x) => s + sessionBreakSecondsWithin(x, rFrom, rTo), 0);
+          const onBreak = p.sessions.some((x) => x.onBreak);
           const worked = days.filter((d) => perDay[d] > 0).length;
           const autoDays = new Set(
             p.sessions.filter((s) => s.autoClosed).map((s) => toLocalDate(new Date(s.clockIn)))
           );
-          return { ...p, perDay, total, worked, autoDays };
+          return { ...p, perDay, total, worked, autoDays, breakTotal, onBreak };
         })
         // Tracked roles always show (a zero is information); others only if they clocked.
         .filter((r) => everyone || r.total > 0 || CLOCKED_ROLES.includes(r.role))
         .sort((a, b) => b.total - a.total),
-    [people, days, everyone]
+    [people, days, everyone, picked.from, picked.to]
   );
 
   if (loaded && me && !can.viewTeam(me)) {
@@ -187,8 +193,8 @@ export default function TimesheetsPage() {
                   <td className="sticky left-0 z-10 bg-card px-5 py-2.5 whitespace-nowrap">
                     <span className="flex items-center gap-2 font-medium">
                       <span
-                        className={cn("size-2 rounded-full", r.clockedIn ? "bg-[var(--pass)]" : "bg-border")}
-                        title={r.clockedIn ? "On the clock" : "Clocked out"}
+                        className={cn("size-2 rounded-full", r.onBreak ? "bg-[var(--review)]" : r.clockedIn ? "bg-[var(--pass)]" : "bg-border")}
+                        title={r.onBreak ? "On break" : r.clockedIn ? "On the clock" : "Clocked out"}
                       />
                       {r.name}
                     </span>
@@ -222,6 +228,7 @@ export default function TimesheetsPage() {
                     {r.worked > 0 && (
                       <span className="block text-xs font-normal text-muted-foreground">
                         {r.worked} day{r.worked === 1 ? "" : "s"} · avg {formatDuration(Math.round(r.total / r.worked))}
+                        {r.breakTotal > 0 && ` · ${formatDuration(r.breakTotal)} breaks`}
                       </span>
                     )}
                   </td>

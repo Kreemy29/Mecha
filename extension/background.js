@@ -24,8 +24,15 @@ function serial(fn) {
 }
 
 async function getConfig() {
-  const c = await chrome.storage.local.get(["appUrl", "key", "clockedIn", "name"]);
-  return { appUrl: c.appUrl || "", key: c.key || "", clockedIn: !!c.clockedIn, name: c.name || "" };
+  const c = await chrome.storage.local.get(["appUrl", "key", "clockedIn", "onBreak", "consent", "name"]);
+  return {
+    appUrl: c.appUrl || "",
+    key: c.key || "",
+    // "tracking" = permission given, on the clock and not on a break.
+    clockedIn: !!c.clockedIn && !c.onBreak && c.consent !== false,
+    onBreak: !!c.onBreak,
+    name: c.name || "",
+  };
 }
 
 async function api(action, extra = {}) {
@@ -38,14 +45,14 @@ async function api(action, extra = {}) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-  await chrome.storage.local.set({ clockedIn: !!data.clockedIn, name: data.name || "" });
-  await updateBadge(!!data.clockedIn);
+  await chrome.storage.local.set({ clockedIn: !!data.clockedIn, onBreak: !!data.onBreak, consent: !!data.consent, name: data.name || "" });
+  await updateBadge(data.clockedIn ? (data.onBreak ? "BRK" : "ON") : "");
   return data;
 }
 
-async function updateBadge(on) {
-  await chrome.action.setBadgeText({ text: on ? "ON" : "" });
-  await chrome.action.setBadgeBackgroundColor({ color: on ? "#10b981" : "#6b7280" });
+async function updateBadge(text) {
+  await chrome.action.setBadgeText({ text });
+  await chrome.action.setBadgeBackgroundColor({ color: text === "ON" ? "#0e9c8a" : text === "BRK" ? "#b5820a" : "#6b7280" });
 }
 
 // What the user is doing right now, as a segment descriptor.
@@ -159,7 +166,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
         const data = await api("status");
         reply({ ok: true, setup: true, ...data });
       } else if (msg.type === "clock") {
-        if (msg.action === "clock_out") await closeCurrent(new Date().toISOString());
+        if (msg.action === "clock_out" || msg.action === "break_start") await closeCurrent(new Date().toISOString());
         // Flush before clocking out so the last minutes aren't dropped.
         const { queue = [] } = await chrome.storage.local.get("queue");
         if (queue.length) {
@@ -172,7 +179,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
       } else if (msg.type === "disconnect") {
         await chrome.storage.local.clear();
         await chrome.storage.session.clear();
-        await updateBadge(false);
+        await updateBadge("");
         reply({ ok: true, setup: false });
       }
     } catch (err) {

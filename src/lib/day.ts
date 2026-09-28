@@ -73,14 +73,37 @@ interface SessionLike {
   clockIn: string;
   clockOut: string | null;
   lastSeen: string;
+  breaks?: Array<{ start: string; end: string | null }>;
+  onBreak?: boolean;
 }
 
-// Seconds of `s` inside [from, to). An open session counts to its last
-// heartbeat, matching the server's secondsWithin.
+// Mirrors services/worktime.ts: an open session runs to "now" during a break
+// (the break is subtracted) and to its last heartbeat otherwise.
+function effectiveEnd(s: SessionLike): number {
+  if (s.clockOut) return Date.parse(s.clockOut);
+  return s.onBreak ? Date.now() : Date.parse(s.lastSeen);
+}
+
+const overlapMs = (a0: number, a1: number, b0: number, b1: number) =>
+  Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
+
+// Break seconds of `s` inside [from, to).
+export function sessionBreakSecondsWithin(s: SessionLike, from: string, to: string): number {
+  const end = effectiveEnd(s);
+  const f = Date.parse(from);
+  const t = Date.parse(to);
+  const ms = (s.breaks ?? []).reduce(
+    (sum, b) => sum + overlapMs(Date.parse(b.start), b.end ? Date.parse(b.end) : end, f, t),
+    0
+  );
+  return Math.round(ms / 1000);
+}
+
+// WORKED seconds of `s` inside [from, to): its span minus its breaks,
+// matching the server's secondsWithin.
 export function sessionSecondsWithin(s: SessionLike, from: string, to: string): number {
-  const start = Math.max(Date.parse(s.clockIn), Date.parse(from));
-  const end = Math.min(Date.parse(s.clockOut ?? s.lastSeen), Date.parse(to));
-  return Math.max(0, Math.round((end - start) / 1000));
+  const gross = overlapMs(Date.parse(s.clockIn), effectiveEnd(s), Date.parse(from), Date.parse(to));
+  return Math.max(0, Math.round(gross / 1000) - sessionBreakSecondsWithin(s, from, to));
 }
 
 // Worked seconds per local day. A session that crosses midnight is split

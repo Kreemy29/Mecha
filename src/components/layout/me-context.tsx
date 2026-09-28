@@ -12,9 +12,28 @@ export interface Me {
   isAdmin: boolean;
 }
 
+export type ClockAction = "in" | "out" | "break_start" | "break_end";
+
+export interface Punch {
+  at: string;
+  kind: ClockAction;
+  auto?: boolean;
+}
+
 export interface ClockState {
-  session: { id: number; clockIn: string; lastSeen: string } | null;
+  session: {
+    id: number;
+    clockIn: string;
+    lastSeen: string;
+    onBreak: boolean;
+    breaks: Array<{ id: number; start: string; end: string | null }>;
+  } | null;
+  // Worked (breaks excluded) and break seconds for the viewer's today, as of
+  // `asOf`; the running one grows by the time elapsed since.
+  asOf: string;
   todaySeconds: number;
+  todayBreakSeconds: number;
+  punches: Punch[];
   tracker: { hasKey: boolean; lastUsedAt: string | null };
 }
 
@@ -22,7 +41,7 @@ interface MeContextValue {
   me: Me | null;
   loaded: boolean;
   clock: ClockState | null;
-  setClock: (action: "in" | "out") => Promise<void>;
+  setClock: (action: ClockAction) => Promise<void>;
   refreshClock: () => Promise<void>;
 }
 
@@ -53,7 +72,7 @@ export function MeProvider({ children }: { children: React.ReactNode }) {
     if (res.ok) setClockState(await res.json());
   }, []);
 
-  const setClock = useCallback(async (action: "in" | "out") => {
+  const setClock = useCallback(async (action: ClockAction) => {
     const { from, to } = dayBounds(todayLocal());
     const res = await fetch("/api/clock", {
       method: "POST",

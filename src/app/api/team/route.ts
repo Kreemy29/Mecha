@@ -3,12 +3,15 @@ import { listUsers, requireUser } from "@/lib/services/auth";
 import { can } from "@/lib/roles";
 import {
   activitySummary,
+  breakSecondsWithin,
+  consentStatus,
   openSession,
   secondsWithin,
   sessionsBetween,
   trackerKeyStatus,
 } from "@/lib/services/worktime";
 import { isDate, listTrends } from "@/lib/services/trends";
+import { CONSENT_VERSION } from "@/lib/tracking-consent";
 import { itemStatsForUser } from "@/lib/services/production";
 
 // GET ?people=1                → everyone's id/name/role (assignee pickers)
@@ -48,14 +51,20 @@ export async function GET(request: NextRequest) {
       clockedIn: !!openSession(u.id),
       sessions,
       workedSeconds: sessions.reduce((sum, s) => sum + secondsWithin(s, from, to), 0),
+      breakSeconds: sessions.reduce((sum, s) => sum + breakSecondsWithin(s, from, to), 0),
+      onBreak: sessions.some((s) => s.onBreak),
       tracker: trackerKeyStatus(u.id),
+      consent: consentStatus(u.id, CONSENT_VERSION),
       activity: {
         browseSeconds: activity.browseSeconds,
+        appSeconds: activity.appSeconds,
+        hasDesktop: activity.hasDesktop,
+        apps: activity.apps.slice(0, 8),
         idleSeconds: activity.idleSeconds,
         awaySeconds: activity.awaySeconds,
         domains: activity.domains.slice(0, 8),
         lastActivityAt: activity.lastActivityAt,
-        ...(detailFor === u.id ? { pages: activity.pages, timeline: activity.timeline } : {}),
+        ...(detailFor === u.id ? { pages: activity.pages, windows: activity.windows, timeline: activity.timeline } : {}),
       },
       trends: {
         total: mine.length,
