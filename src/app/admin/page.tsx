@@ -41,6 +41,14 @@ interface Channels {
   bot: string | null;
 }
 
+interface Diagnostics {
+  service: string | null;
+  externalUrl: string | null;
+  commit: string | null;
+  startedAt: string;
+  env: Record<string, { set: boolean; length: number }>;
+}
+
 export default function AdminPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [me, setMe] = useState<User | null>(null);
@@ -48,6 +56,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [channels, setChannels] = useState<Channels | null>(null);
+  const [diag, setDiag] = useState<Diagnostics | null>(null);
   const [hooking, setHooking] = useState(false);
 
   const [username, setUsername] = useState("");
@@ -60,15 +69,17 @@ export default function AdminPage() {
 
   const load = useCallback(async () => {
     try {
-      const [u, s, c] = await Promise.all([
+      const [u, s, c, d] = await Promise.all([
         fetch("/api/users").then((r) => r.json()),
         fetch("/api/auth/session").then((r) => r.json()),
         fetch("/api/telegram").then((r) => r.json()).catch(() => null),
+        fetch("/api/diagnostics").then((r) => (r.ok ? r.json() : null)).catch(() => null),
       ]);
       if (u.error) setDenied(true);
       else setUsers(u);
       setMe(s.user ?? null);
       setChannels(c);
+      setDiag(d);
     } finally {
       setLoading(false);
     }
@@ -202,6 +213,37 @@ export default function AdminPage() {
             {!channels?.telegram && "Telegram: set TELEGRAM_BOT_TOKEN on the server (from @BotFather), then click “Connect bot webhook”. "}
             {!channels?.email && "Email: set GMAIL_USER and GMAIL_APP_PASSWORD (a Google App Password) on the server."}
           </p>
+        )}
+        {diag && (
+          <details className="mt-3 rounded-lg border border-border px-3 py-2 text-xs">
+            <summary className="cursor-pointer font-medium text-muted-foreground">
+              Server check: which deploy is running and which settings it can see
+            </summary>
+            <div className="mt-2 space-y-2">
+              <p className="text-muted-foreground">
+                Service <b className="text-foreground">{diag.service ?? "(not on Render)"}</b>
+                {diag.externalUrl && <> at {diag.externalUrl}</>}
+                {diag.commit && <> · deploy <b className="text-foreground">{diag.commit}</b></>}
+                {" · "}started {new Date(diag.startedAt).toLocaleString()}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(diag.env).map(([k, v]) => (
+                  <span
+                    key={k}
+                    className={cn(
+                      "rounded-md px-2 py-0.5 font-mono text-[11px]",
+                      v.set ? "bg-[var(--pass)]/12 text-[var(--pass)]" : "bg-destructive/10 text-destructive"
+                    )}
+                  >
+                    {k}: {v.set ? `set (${v.length} chars)` : "missing"}
+                  </span>
+                ))}
+              </div>
+              <p className="text-muted-foreground">
+                {"If a value shows “missing” here but is in Render's Environment page, that page isn't this service's, or it was saved without deploying."}
+              </p>
+            </div>
+          </details>
         )}
       </Card>
 
