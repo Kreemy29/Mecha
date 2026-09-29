@@ -42,6 +42,9 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [testing, setTesting] = useState(false);
+  // The message the link would send, for when the Start button doesn't work
+  // (Telegram in a browser often can't hand the link to the app).
+  const [manual, setManual] = useState<{ bot: string; command: string } | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -84,6 +87,8 @@ export default function ProfilePage() {
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
+      const m = String(data.url).match(/t\.me\/([^?]+)\?start=(\w+)/);
+      if (m) setManual({ bot: m[1], command: `/start ${m[2]}` });
       window.open(data.url, "_blank", "noopener");
       toast.message("Press Start in Telegram, then come back and refresh this page.");
     } catch (err) {
@@ -175,6 +180,28 @@ export default function ProfilePage() {
               {connecting ? <SpinnerGapIcon className="size-4 animate-spin" /> : <TelegramLogoIcon className="size-4" />}
               {p.telegramConnected ? "Reconnect Telegram" : "Connect Telegram"}
             </Button>
+          )}
+          {manual && (
+            <div className="mt-3 space-y-1.5 rounded-lg bg-secondary/50 p-3 text-xs">
+              <p className="text-muted-foreground">
+                Start button not working? Open <b className="text-foreground">@{manual.bot}</b> in Telegram and send this
+                message:
+              </p>
+              <div className="flex items-center gap-2">
+                <code className="min-w-0 flex-1 truncate rounded bg-card px-2 py-1 font-mono">{manual.command}</code>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    navigator.clipboard.writeText(manual.command);
+                    toast.success("Copied. Paste it into the bot's chat.");
+                  }}
+                >
+                  Copy
+                </Button>
+              </div>
+              <p className="text-muted-foreground">The bot replies “Connected ✅”, then refresh this page.</p>
+            </div>
           )}
         </Card>
 
