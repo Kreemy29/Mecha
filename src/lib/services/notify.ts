@@ -40,7 +40,63 @@ function ensureNotifyTables(): void {
   ensured = true;
 }
 
-const tgToken = () => process.env.TELEGRAM_BOT_TOKEN?.trim() || "";
+// ── Credentials ──
+// An admin can paste these into the app (Settings → Accounts); they're kept
+// in the settings table and win over the host's env vars. That way the bot
+// works on a host whose dashboard you can't reach. Never sent back to a
+// browser: see credentialStatus for the masked view.
+
+export const CREDENTIAL_KEYS = {
+  telegramBotToken: { db: "notify.telegram_bot_token", env: "TELEGRAM_BOT_TOKEN" },
+  gmailUser: { db: "notify.gmail_user", env: "GMAIL_USER" },
+  gmailAppPassword: { db: "notify.gmail_app_password", env: "GMAIL_APP_PASSWORD" },
+} as const;
+export type CredentialKey = keyof typeof CREDENTIAL_KEYS;
+
+function savedValue(dbKey: string): string {
+  const row = rawDb.prepare("SELECT value FROM settings WHERE key = ?").get(dbKey) as { value: string } | undefined;
+  return row?.value?.trim() || "";
+}
+
+function credential(k: CredentialKey): { value: string; source: "app" | "server" | null } {
+  const { db, env } = CREDENTIAL_KEYS[k];
+  const saved = savedValue(db);
+  if (saved) return { value: saved, source: "app" };
+  const fromEnv = process.env[env]?.trim() || "";
+  return { value: fromEnv, source: fromEnv ? "server" : null };
+}
+
+export function setCredential(k: CredentialKey, value: string | null): void {
+  const { db } = CREDENTIAL_KEYS[k];
+  const v = (value ?? "").trim();
+  if (v) {
+    rawDb
+      .prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run(db, v);
+  } else {
+    rawDb.prepare("DELETE FROM settings WHERE key = ?").run(db);
+  }
+  // Anything derived from the old values is stale now.
+  botUsername = null;
+  transport = null;
+}
+
+// What an admin screen may show: where each value comes from, and a hint
+// (Gmail address in full; secrets only as their last 4 characters).
+export function credentialStatus() {
+  const out: Record<string, { set: boolean; source: "app" | "server" | null; hint: string | null }> = {};
+  for (const k of Object.keys(CREDENTIAL_KEYS) as CredentialKey[]) {
+    const c = credential(k);
+    out[k] = {
+      set: !!c.value,
+      source: c.source,
+      hint: !c.value ? null : k === "gmailUser" ? c.value : `…${c.value.slice(-4)}`,
+    };
+  }
+  return out;
+}
+
+const tgToken = () => credential("telegramBotToken").value;
 export const telegramWebhookSecret = () =>
   process.env.TELEGRAM_WEBHOOK_SECRET?.trim() ||
   crypto.createHash("sha256").update(`oneup-webhook:${tgToken()}`).digest("hex").slice(0, 48);
@@ -48,7 +104,7 @@ export const telegramWebhookSecret = () =>
 export function notifyConfig() {
   return {
     telegram: !!tgToken(),
-    email: !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD),
+    email: !!(credential("gmailUser").value && credential("gmailAppPassword").value),
   };
 }
 
@@ -164,8 +220,8 @@ export async function setupTelegramWebhook(origin: string): Promise<string> {
 
 let transport: nodemailer.Transporter | null = null;
 function mailer(): nodemailer.Transporter | null {
-  const user = process.env.GMAIL_USER?.trim();
-  const pass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, "");
+  const user = credential("gmailUser").value;
+  const pass = credential("gmailAppPassword").value.replace(/\s+/g, "");
   if (!user || !pass) return null;
   if (!transport) transport = nodemailer.createTransport({ service: "gmail", auth: { user, pass } });
   return transport;
@@ -186,7 +242,7 @@ export async function sendEmail(to: string, m: Message): Promise<void> {
   const t = mailer();
   if (!t) throw new Error("Email isn't set up (GMAIL_USER / GMAIL_APP_PASSWORD).");
   await t.sendMail({
-    from: `OneUp Studio <${process.env.GMAIL_USER}>`,
+    from: `OneUp Studio <${credential("gmailUser").value}>`,
     to,
     subject: m.title,
     text: [m.title, ...(m.lines ?? []), m.link ? `${m.link.label}: ${m.link.url}` : ""].filter(Boolean).join("\n\n"),

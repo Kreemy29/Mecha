@@ -208,12 +208,7 @@ export default function AdminPage() {
             </Button>
           )}
         </div>
-        {(!channels?.telegram || !channels?.email) && (
-          <p className="mt-3 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
-            {!channels?.telegram && "Telegram: set TELEGRAM_BOT_TOKEN on the server (from @BotFather), then click “Connect bot webhook”. "}
-            {!channels?.email && "Email: set GMAIL_USER and GMAIL_APP_PASSWORD (a Google App Password) on the server."}
-          </p>
-        )}
+        <CredentialsForm onSaved={load} />
         {diag && (
           <details className="mt-3 rounded-lg border border-border px-3 py-2 text-xs">
             <summary className="cursor-pointer font-medium text-muted-foreground">
@@ -374,6 +369,121 @@ export default function AdminPage() {
           </tbody>
         </table>
       </Card>
+    </div>
+  );
+}
+
+type CredKey = "telegramBotToken" | "gmailUser" | "gmailAppPassword";
+type CredStatus = Record<CredKey, { set: boolean; source: "app" | "server" | null; hint: string | null }>;
+
+const CRED_FIELDS: { key: CredKey; label: string; placeholder: string; secret: boolean; help: string }[] = [
+  {
+    key: "telegramBotToken",
+    label: "Telegram bot token",
+    placeholder: "123456789:AA...",
+    secret: true,
+    help: "From @BotFather (/newbot). Saving it also connects the bot to this app.",
+  },
+  { key: "gmailUser", label: "Gmail address", placeholder: "studio@oneupmedia.io", secret: false, help: "The account emails are sent from." },
+  {
+    key: "gmailAppPassword",
+    label: "Gmail App Password",
+    placeholder: "16 characters",
+    secret: true,
+    help: "Google Account → Security → 2-Step Verification → App passwords.",
+  },
+];
+
+// Paste the bot token / Gmail login into the app itself: stored in its
+// database, never shown again (only the last 4 characters), and preferred
+// over the host's environment variables.
+function CredentialsForm({ onSaved }: { onSaved: () => Promise<void> }) {
+  const [status, setStatus] = useState<CredStatus | null>(null);
+  const [draft, setDraft] = useState<Partial<Record<CredKey, string>>>({});
+  const [saving, setSaving] = useState(false);
+
+  const refresh = useCallback(async () => {
+    const res = await fetch("/api/notify-settings");
+    if (res.ok) setStatus(await res.json());
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      await refresh();
+    })();
+  }, [refresh]);
+
+  const save = async (body: Partial<Record<CredKey, string | null>>) => {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/notify-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await res.json();
+      if (d.error) throw new Error(d.error);
+      setStatus(d.status);
+      setDraft({});
+      toast.success(d.webhook ? "Saved. The bot is connected to this app." : "Saved");
+      await onSaved();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const pending = Object.fromEntries(Object.entries(draft).filter(([, v]) => v && v.trim()));
+
+  return (
+    <div className="mt-4 space-y-3 border-t border-border pt-4">
+      <div className="grid gap-3 md:grid-cols-3">
+        {CRED_FIELDS.map((f) => {
+          const s = status?.[f.key];
+          return (
+            <label key={f.key} className="space-y-1.5">
+              <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                {f.label}
+                {s?.set && (
+                  <span className="rounded bg-[var(--pass)]/12 px-1.5 py-0.5 text-[10px] font-medium text-[var(--pass)]">
+                    {s.source === "app" ? "saved" : "from server"} {s.hint}
+                  </span>
+                )}
+              </span>
+              <Input
+                type={f.secret ? "password" : "text"}
+                autoComplete="off"
+                value={draft[f.key] ?? ""}
+                onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
+                placeholder={s?.set ? "Paste a new one to replace" : f.placeholder}
+              />
+              <span className="block text-[11px] text-muted-foreground">
+                {f.help}
+                {s?.source === "app" && (
+                  <button
+                    type="button"
+                    onClick={() => confirm(`Remove the saved ${f.label.toLowerCase()}?`) && save({ [f.key]: null })}
+                    className="ml-1 text-destructive hover:underline"
+                  >
+                    Remove
+                  </button>
+                )}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      <div className="flex justify-end">
+        <Button
+          onClick={() => save(pending)}
+          disabled={saving || Object.keys(pending).length === 0}
+          className="gap-1.5 bg-brand text-brand-foreground hover:bg-brand/90"
+        >
+          {saving && <SpinnerGapIcon className="size-4 animate-spin" />}
+          Save
+        </Button>
+      </div>
     </div>
   );
 }
