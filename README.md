@@ -1,147 +1,209 @@
-# Mecha AI
+# OneUp Studio
 
-A local, single-user desktop web app that automates production of AI-generated
-marketing UGC for fictional brand personas. You pick a persona and a style,
-pull reference imagery, let an LLM write generation prompts, and fire batches of
-image/video jobs through a durable queue — reviewing, redoing, and delivering the
-results to Slack.
+OneUp Media's content studio. One web app where the Instagram department
+**researches trends, turns them into AI-made videos for every model, reviews
+the work and hands it to marketing**, while it also tracks who worked when.
 
-> **Design principle:** use the LLM for *words* and a direct tool client for
-> *pixels*. Grok handles reasoning (search seeds, recreation/subject-swap prompts,
-> rewrite-on-rejection, character creation). A separate worker fires the actual
-> generations against Higgsfield / fal and polls them to completion.
+It has two halves:
+
+- **The department pipeline**: Trends → Production → Drive → Marketing, with a
+  time clock, timesheets, activity tracking and Telegram/email notifications
+  at every hand-off.
+- **The AI generation tools** the creators use to make the content: image
+  recreation, Seedance video, motion transfer (Wan Animate / Kling), and
+  methods saved from Higgsfield and Yapper.
+
+> Developers: read [HANDOFF.md](HANDOFF.md) next (architecture, code map,
+> gotchas, current state) and [DEPLOY.md](DEPLOY.md) for Render.
 
 ---
 
-## Architecture
+## Who uses it
+
+| Role | What they do here |
+|---|---|
+| **Developer / AI Content Manager** (owner, admin) | Reviews trends, picks the method and creator for each one, reviews hand-ins, uploads the finished videos to Drive, manages accounts |
+| **CEO** | Reviews and approves trends, sees everything (Team, Timesheets, Production) |
+| **Trend Researcher** | Finds reels and carousels every day and explains why they'll go viral |
+| **Content Creator** | Makes the videos for each model using the method, hands them in as Drive links |
+| **Marketing Manager** | Gets told when finished content is in the Drive, ready to post |
+| AI Artist, Meta Ads | Older roles, still supported (AI Artist can do production work) |
+
+Accounts are created by an admin (**Settings → Accounts**). Nobody picks their
+own role. Researchers and creators get a short menu with just their pages.
+
+---
+
+## The pipeline, step by step
 
 ```
-Browser (Next.js UI) ──poll / SSE──┐
-                                    ▼
-                             SQLite (data/mecha.db)   ◄── single source of truth
-                                    ▲
-Worker process (p-queue) ───────────┘
-   ├─ Higgsfield MCP   submit → job_display poll → download   (Soul 2.0, etc.)
-   ├─ fal.ai           queue submit → poll → download          (optional)
-   └─ Grok (xAI)       search seeds · subject-swap (vision) · rewrite · character creator
-External: Pinterest (no-key scrape) · Instagram (RapidAPI) · Slack
+ Researcher            Manager / CEO             Manager                 Creator                 Manager              Marketing
+ ──────────            ─────────────             ───────                 ───────                 ───────              ─────────
+ Trends page     ──►   approve / reject   ──►    Production:       ──►   makes one video   ──►   reviews each   ──►   "uploaded to
+ add reels +           each trend                method + creator        per model, hands       video, puts           Drive", ready
+ carousels                                       + models + example      each in as a           them in the           to post
+                                                                         Drive link             shared Drive
+ [Finished for         [Done reviewing]          [Send tasks]            [I'm finished]          [Uploaded to
+  today] ─────►        ─────► Manager ──►        ─────► each creator     ─────► Manager           Drive] ─────► Marketing
+  Manager + CEO
 ```
 
-The UI and the worker communicate only through the shared SQLite DB. The worker is
-the sole writer of generation results, so a crash + restart resumes polling
-existing jobs rather than resubmitting.
+Every button in `[brackets]` sends a **Telegram message and/or email** to the
+next person (see [Notifications](#notifications)).
+
+### 1. Trend research (`Department → Trends`)
+
+- Pick the **day** (arrows, date picker, or the week strip with counts and
+  approved/waiting dots).
+- Two sections: **Reels** and **Carousels**. For each find:
+  **Instagram link**, **niche** (pick one or type a new one), the **models** it
+  suits, and **why it will go viral**.
+- Each card shows the **reel preview** (thumbnail, click to play), pulled free
+  from Instagram's embed page. Posts whose owner blocks embedding show
+  **Load preview**, which fetches that one post through Apify (a few credits,
+  only on click).
+- When the day's research is done, the researcher clicks **Finished for today**
+  → the manager and the CEO are notified.
+
+### 2. Review
+
+- The manager or CEO **approves** or **rejects** each suggestion (a rejection
+  carries a note the researcher sees). The researcher can edit a rejected one
+  and it goes back to pending.
+- When the **CEO** has gone through the day, she clicks **Done reviewing** → the
+  manager gets "Content approved by the CEO: N approved, you can start working
+  on it". (The manager reviewing doesn't need to notify themselves.)
+
+### 3. Production planning (`Department → Production`)
+
+- **Approved trends waiting for a method** are listed with their previews.
+- The manager clicks **Assign** and picks:
+  - the **method**: a generation saved on the **Methods** page (from Higgsfield
+    or Yapper), with its prompt, output and **the reference photos/videos it
+    was made from**;
+  - the **content creator** and the **due date**;
+  - the **models** to make it for, plus **one example** (which model it's for
+    and a Drive link to it). The creator gets one item per *remaining* model.
+- When everything is assigned, **Send tasks** messages each creator their new
+  tasks. Each task then shows its stage: *Not sent yet → Sent → Finished →
+  Uploaded*.
+
+### 4. Making the content
+
+- The creator sees **My tasks**: the original reel, the method (copyable
+  prompt, output, references), the example, the notes, and one row per model.
+- They make each video with the generation tools, upload it to Drive and hand
+  it in with **Hand in** (a Drive link). Items can be updated until approved.
+- Once every model is handed in, they click **I'm finished** → the manager gets
+  the list of Drive links.
+
+### 5. Review and delivery
+
+- The manager **approves** or **rejects** each model's video (with a note).
+- They put the finished videos in the shared Drive folder and click
+  **Uploaded to Drive** with the folder link → the marketing managers are told
+  it's ready to post.
 
 ---
 
-## Tech stack
+## Time, breaks and tracking
 
-- **Next.js (App Router) + TypeScript** — UI + API routes
-- **Tailwind CSS + shadcn/ui** (on `@base-ui/react`) — glassmorphism UI
-- **SQLite + Drizzle ORM** (`better-sqlite3`) — persistent job/asset/character state
-- **Standalone Node worker** (`tsx`) + **`p-queue`** — concurrency-limited job runner
-- **Model Context Protocol SDK** — Higgsfield MCP client (OAuth PKCE)
+| Page | Who | What |
+|---|---|---|
+| **Time clock** (`Department`) | Everyone | Clock in, **start / end break**, clock out. Today's worked and break time, and a log of every punch |
+| Top bar clock | Everyone | Running total while working, **Break / Resume** button, link to the Time clock |
+| **My hours** | Everyone | Today / this week / this month, hours per day chart, every session with its breaks |
+| **Timesheets** | Manager, CEO | Everyone's hours per day for a week or month, totals and averages, **CSV export** for payroll |
+| **Team** | Manager, CEO | One day in detail per person: sessions and breaks, active / idle / away time, top apps and sites, a full timeline, and how much of their work was approved |
+
+Rules:
+
+- **Breaks don't count** as worked time anywhere, and nothing is tracked
+  during a break.
+- Researchers and creators must be **clocked in (and not on a break)** to
+  submit work.
+- Forgot to clock out? A session with no activity for **2 hours** closes itself
+  at the last sign of life (flagged "auto"). A break left running **4 hours**
+  ends the day at the moment the break started.
+
+### Activity tracking, permission first
+
+Like Insightful, but **nothing is recorded until the person agrees**. On
+**Settings → Work tracker** each person reads exactly what is and isn't
+collected and clicks **Allow tracking** (they can withdraw any time). The
+server refuses activity from anyone who hasn't agreed to the current wording.
+
+Two trackers, both connected with a personal **tracker key** from that page:
+
+- **OneUp desktop tracker (Windows)**: a small tray app (no install, uses the
+  PowerShell built into Windows). Records the program in front (CapCut,
+  Photoshop…) and its window title, plus idle time. Asks permission again on
+  the computer the first time it runs.
+- **Chrome extension**: records the website and page title of the tab in front.
+
+Only while clocked in and not on a break. **Never**: screenshots, keystrokes,
+anything typed, page contents, or anything outside working hours.
 
 ---
 
-## Prerequisites
+## Notifications
 
-- **Node.js 20+**
-- **ffmpeg** on your PATH (used to extract the first frame from reel references)
-- A **Higgsfield** account (for Soul-based generation)
-- An **xAI** API key (for prompt reasoning / vision)
+Each person sets a **work email** and **Telegram username** (admin on
+**Settings → Accounts**, or themselves on **Settings → My profile**).
+
+- **Telegram**: everyone clicks **Connect Telegram** on My profile once and
+  presses **Start** in the bot (Telegram only lets a bot message people who
+  started it). If Start does nothing (Telegram in a browser), the page shows
+  the `/start <code>` message to paste into the bot instead.
+- **Email**: sent through Gmail.
+
+The bot token and Gmail login can be pasted straight into
+**Settings → Accounts → Notifications** (stored in the app, shown masked), so
+no hosting dashboard access is needed. After each hand-off button, the app
+says who was notified and names anyone it couldn't reach.
 
 ---
 
-## Setup
+## The generation tools
+
+| Page | What it does |
+|---|---|
+| **Instagram** | Save Instagram accounts (tagged by model and niche), browse their reels, save clips, send them to requests or recreation |
+| **Requests** | Work queues (Meta Ads / Reels): a clip handed to someone to produce, with a model, a format and a comment thread |
+| **Formats** | Weekly board of "winning formats" (reference reels), each with a method and per-model quotas |
+| **Images** | Pinterest / upload references → Grok writes a subject-swap prompt → Higgsfield Soul renders stills → review, redo with notes, download |
+| **Seedance** | Batch video recreation: N videos × M outfits → a still per combination → Seedance video from still + reference video |
+| **Motion capture** | Motion transfer: pick a frame, approve the still, animate with Wan Animate (RunningHub) or Kling 3.0 (Higgsfield) |
+| **Methods** | Your Higgsfield and Yapper generation history (prompt, settings, references, output). **Save** the good ones so they can be assigned in Production |
+| **Characters / Presets** | The AI personas, and saved prompt / outfit / hair / makeup / background presets |
+
+---
+
+## Running it
 
 ```bash
-# 1. Install dependencies
 npm install
-
-# 2. Configure environment
-cp .env.example .env.local
-#   then edit .env.local — at minimum set XAI_API_KEY.
-#   Higgsfield is connected from the app UI (see below), not the env file.
-
-# 3. Create the database
-npm run db:push
-
-# 4. Run the app (two processes)
-npm run dev        # Next.js UI  (http://localhost:3000, or 3001 if 3000 is taken)
-npm run worker     # job worker  (run in a second terminal)
+# create .env.local with your keys (the full list is in DEPLOY.md, section 3)
+npm run dev                  # UI + background worker together → http://localhost:3000
 ```
 
-Open the app, then:
+- Node **22** (not 24: `better-sqlite3` has no prebuilt binary for 24).
+- `ffmpeg` on the PATH (or `FFMPEG_PATH`).
+- The first visit creates the admin account (asks for `SETUP_TOKEN` if set).
+- **Settings → Connections** connects Higgsfield (sign-in in the browser) and
+  Yapper (API key; needs a paid Yapper plan).
 
-1. **Settings → Connect Higgsfield MCP** — completes the OAuth flow in your
-   browser and captures/refreshes the token automatically. (Or paste a token
-   manually under "Advanced".)
-2. **Settings → Discover Tools / Sync Characters** — pulls your Soul characters
-   into the local DB.
-
----
-
-## Required configuration
-
-| Key | Required | Purpose |
-|-----|----------|---------|
-| `XAI_API_KEY` | **Yes** | Grok prompt reasoning + vision |
-| `HIGGSFIELD_MCP_URL` | Yes (default set) | Higgsfield MCP endpoint |
-| `HIGGSFIELD_OAUTH_TOKEN` / `HIGGSFIELD_CLIENT_ID` | Auto | Managed by the in-app connect flow |
-| `APIFY_TOKEN` | For reels | Instagram browsing/reel download (`apify/instagram-scraper` actor) |
-| `RAPIDAPI_KEY` | Optional | Only needed alongside `RAPIDAPI_PINTEREST_HOST` below |
-| `RAPIDAPI_PINTEREST_HOST` | Optional | Override the built-in no-key Pinterest scraper |
-| `FAL_KEY` | Optional | Alternate image provider (nano-banana / seedream) |
-| `RUNNINGHUB_*` | Phase 3 | Talking-head + motion-capture video |
-| `SLACK_WEBHOOK_URL` / `SLACK_BOT_TOKEN` / `SLACK_SIGNING_SECRET` | For delivery | Post approved assets + interactive approval |
-| `IMAGE_CONCURRENCY` / `VIDEO_CONCURRENCY` | Yes (default set) | Worker concurrency per provider |
-| `DAILY_COST_CAP` | Yes (default set) | Halts new submissions past this credit total |
-| `DATABASE_PATH` | Yes (default set) | SQLite file location |
-
-> **Pinterest needs no key** — it uses a built-in native search.
-> Only set `RAPIDAPI_PINTEREST_HOST` if you want to route through a paid RapidAPI
-> Pinterest endpoint instead.
+Production runs on Render as one Docker service with a persistent disk. See
+[DEPLOY.md](DEPLOY.md).
 
 ---
 
-## Image workflow
+## Built with
 
-`Setup → Search Query → References → Recreation → Generate → Review`
+Next.js 16 (App Router) + React 19 + TypeScript · Tailwind 4 + shadcn/ui on Base
+UI, styled with the **OneUp Insights** design system (dark) · SQLite via
+better-sqlite3 + Drizzle · a Node worker with p-queue for generation jobs ·
+Higgsfield (MCP), KIE, RunningHub, fal, Grok/Gemini, Apify, Yapper · Telegram
+Bot API and Gmail (nodemailer) for notifications.
 
-1. **Setup** — pick a character, a preset, and a generation provider/model
-   (Soul 2.0 by default), plus quality / aspect ratio / batch size.
-2. **Search Query** — uses the preset's seed directly as the Pinterest query.
-3. **References** — search Pinterest, multi-select usable reference images.
-4. **Recreation** — Grok vision performs a *Visual Subject Swap*: it looks at the
-   scene reference + the character's face and writes a generation prompt.
-5. **Generate** — enqueues jobs; the worker submits to Higgsfield and polls.
-6. **Review** — Approve (→ Slack) or Reject with notes (→ Grok rewrites the prompt
-   and queues a fresh job — never a verbatim re-run). Download all results as a zip.
-
-Characters can also be built with the **AI Character Creator** — upload 2–4 face
-references and Grok blends them into one unique composite persona.
-
----
-
-## Scripts
-
-| Command | What it does |
-|---------|--------------|
-| `npm run dev` | Start the Next.js UI |
-| `npm run worker` | Start the background job worker (required for generation) |
-| `npm run build` / `npm run start` | Production build / serve |
-| `npm run db:push` | Apply the Drizzle schema to SQLite |
-| `npm run db:generate` | Generate a new migration from schema changes |
-| `npm run db:studio` | Open Drizzle Studio |
-
----
-
-## Notes
-
-- **Single-user / local by design.** There is no auth on the local server and
-  storage is file-based (`data/`, `storage/`). Don't expose it to an untrusted
-  network without adding authentication and moving to Postgres + object storage.
-- **Secrets** live only in `.env.local` and `data/` (OAuth token files) — both
-  gitignored. Never commit them.
-- All generated content depicts **fictional AI personas**; reference media is
-  supplied by the operator from URLs.
+All generated content depicts fictional AI personas.
