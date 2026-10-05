@@ -33,6 +33,7 @@ import {
 } from "@/components/department/shared";
 import { ReelPreview } from "@/components/department/reel-preview";
 import { TrendsWorkflowBar } from "@/components/department/workflow-bar";
+import { TrendComments, type TrendComment } from "@/components/department/trend-comments";
 
 type Kind = "reel" | "carousel";
 type ReviewStatus = "pending" | "approved" | "rejected";
@@ -50,6 +51,7 @@ interface Trend {
   reviewedBy: string | null;
   createdById: number;
   createdBy: string;
+  comments: TrendComment[];
 }
 
 interface DayCount {
@@ -147,17 +149,21 @@ export default function TrendsPage() {
     load();
   };
 
-  const review = async (t: Trend, status: ReviewStatus) => {
-    let note: string | null = null;
+  // Approving passes the optional note typed on the card; it becomes the
+  // first comment on the trend.
+  const review = async (t: Trend, status: ReviewStatus, approvalNote?: string) => {
+    let note: string | null = approvalNote?.trim() || null;
     if (status === "rejected") {
       note = window.prompt("Why is it rejected? (the researcher sees this)") ?? null;
-      if (note === null) return;
+      if (note === null) return false;
     }
     try {
       replace(await send("PATCH", { id: t.id, review: status, note }));
       load();
+      return true;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Review failed");
+      return false;
     }
   };
 
@@ -324,7 +330,8 @@ export default function TrendsPage() {
                       manager={!!me && can.manageProduction(me)}
                       models={models}
                       niches={niches}
-                      onReview={(s) => review(t, s)}
+                      onReview={(s, note) => review(t, s, note)}
+                      onComments={(comments) => replace({ ...t, comments })}
                       onEdit={(d) => edit(t, d)}
                       onDelete={() => remove(t)}
                     />
@@ -448,6 +455,7 @@ function TrendCard({
   models,
   niches,
   onReview,
+  onComments,
   onEdit,
   onDelete,
 }: {
@@ -457,11 +465,28 @@ function TrendCard({
   manager: boolean;
   models: string[];
   niches: string[];
-  onReview: (s: ReviewStatus) => void;
+  onReview: (s: ReviewStatus, note?: string) => Promise<boolean>;
+  onComments: (comments: TrendComment[]) => void;
   onEdit: (d: Draft) => Promise<void>;
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
+  // Approve opens a small note box first; the note is optional.
+  const [approving, setApproving] = useState(false);
+  const [approvalNote, setApprovalNote] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const approve = async () => {
+    setBusy(true);
+    try {
+      if (await onReview("approved", approvalNote)) {
+        setApproving(false);
+        setApprovalNote("");
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
   const canChange = (mine || manager) && t.status !== "approved";
 
   if (editing) {
@@ -534,15 +559,53 @@ function TrendCard({
           </p>
         )}
 
+        {t.status === "approved" && <TrendComments trendId={t.id} comments={t.comments} onChange={onComments} />}
+
+        {approving && (
+          <div className="space-y-2 rounded-lg border border-[var(--pass)]/30 bg-[var(--pass)]/[0.05] p-2.5">
+            <Textarea
+              autoFocus
+              value={approvalNote}
+              onChange={(e) => setApprovalNote(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) approve();
+                if (e.key === "Escape") setApproving(false);
+              }}
+              placeholder="Add a note for the team (optional): what to keep, what to change…"
+              maxLength={2000}
+              rows={2}
+              className="text-sm"
+            />
+            <div className="flex justify-end gap-1.5">
+              <Button size="sm" variant="ghost" onClick={() => setApproving(false)} disabled={busy}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={approve}
+                disabled={busy}
+                className="gap-1 bg-[var(--pass)]/15 text-[var(--pass)] hover:bg-[var(--pass)]/25"
+              >
+                {busy ? (
+                  <SpinnerGapIcon className="size-3.5 animate-spin" />
+                ) : (
+                  <ThumbsUpIcon weight="bold" className="size-3.5" />
+                )}
+                {approvalNote.trim() ? "Approve with note" : "Approve"}
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="mt-auto flex flex-wrap items-center gap-1.5">
           <span className="mr-auto text-xs text-muted-foreground">
             by {t.createdBy}
             {t.reviewedBy && t.status !== "pending" && ` · ${t.status} by ${t.reviewedBy}`}
           </span>
-          {reviewer && t.status !== "approved" && (
+          {reviewer && t.status !== "approved" && !approving && (
             <Button
               size="sm"
-              onClick={() => onReview("approved")}
+              onClick={() => setApproving(true)}
               className="gap-1 bg-[var(--pass)]/15 text-[var(--pass)] hover:bg-[var(--pass)]/25"
             >
               <ThumbsUpIcon weight="bold" className="size-3.5" /> Approve

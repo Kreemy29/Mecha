@@ -70,6 +70,10 @@ next person (see [Notifications](#notifications)).
 - The manager or CEO **approves** or **rejects** each suggestion (a rejection
   carries a note the researcher sees). The researcher can edit a rejected one
   and it goes back to pending.
+- **Approve** opens a small box for an optional note. The note starts a
+  **comment thread** on the approved reel, which everyone involved can reply
+  to: on the Trends card, in Production's waiting list, and on each task made
+  from it, so the creator sees it too.
 - When the **CEO** has gone through the day, she clicks **Done reviewing** → the
   manager gets "Content approved by the CEO: N approved, you can start working
   on it". (The manager reviewing doesn't need to notify themselves.)

@@ -38,6 +38,7 @@ import {
   WorkBanners,
 } from "@/components/department/shared";
 import { ReelPreview } from "@/components/department/reel-preview";
+import { TrendComments, type TrendComment } from "@/components/department/trend-comments";
 import { reportNotified, type NotifyResult } from "@/components/department/workflow-bar";
 
 interface Trend {
@@ -49,6 +50,7 @@ interface Trend {
   models: string[];
   justification: string;
   createdBy: string;
+  comments: TrendComment[];
 }
 
 interface MediaRef {
@@ -158,6 +160,14 @@ export default function ProductionPage() {
       .then((d) => setPeople(Array.isArray(d) ? d : []))
       .catch(() => {});
   }, [manager]);
+
+  // A trend's thread shows in the waiting list and on every task made from it.
+  const setTrendComments = (trendId: number, comments: TrendComment[]) => {
+    setApproved((prev) => prev.map((t) => (t.id === trendId ? { ...t, comments } : t)));
+    setTasks((prev) =>
+      prev.map((t) => (t.trend?.id === trendId ? { ...t, trend: { ...t.trend, comments } } : t))
+    );
+  };
 
   const assignedTrendIds = useMemo(() => new Set(tasks.map((t) => t.trend?.id)), [tasks]);
   const waiting = approved.filter((t) => !assignedTrendIds.has(t.id));
@@ -295,6 +305,11 @@ export default function ProductionPage() {
                           </span>
                         ))}
                       </div>
+                      <TrendComments
+                        trendId={t.id}
+                        comments={t.comments ?? []}
+                        onChange={(c) => setTrendComments(t.id, c)}
+                      />
                       {manager && (
                         <Button
                           size="sm"
@@ -364,6 +379,7 @@ export default function ProductionPage() {
                 onAct={act}
                 onDelete={() => removeTask(t)}
                 onChanged={load}
+                onComments={(c) => t.trend && setTrendComments(t.trend.id, c)}
               />
             ))
           )}
@@ -514,6 +530,7 @@ function TaskCard({
   onAct,
   onDelete,
   onChanged,
+  onComments,
 }: {
   task: Task;
   manager: boolean;
@@ -521,6 +538,7 @@ function TaskCard({
   onAct: (itemId: number, action: "submit" | "approve" | "reject", extra?: Record<string, unknown>) => Promise<void>;
   onDelete: () => void;
   onChanged: () => Promise<void>;
+  onComments: (comments: TrendComment[]) => void;
 }) {
   const done = t.items.filter((i) => i.status === "approved").length;
   const overdue = !isDone(t) && t.dueDate < todayLocal();
@@ -613,6 +631,10 @@ function TaskCard({
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Notes</p>
               <p className="mt-0.5 whitespace-pre-wrap text-sm">{t.notes}</p>
             </div>
+          )}
+
+          {t.trend && (
+            <TrendComments trendId={t.trend.id} comments={t.trend.comments ?? []} onChange={onComments} />
           )}
         </div>
 

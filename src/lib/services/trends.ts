@@ -31,8 +31,27 @@ export function ensureTrendTables(): void {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS trend_suggestions_date ON trend_suggestions (date);
+    CREATE TABLE IF NOT EXISTS trend_comments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      trend_id INTEGER NOT NULL REFERENCES trend_suggestions(id),
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS trend_comments_trend ON trend_comments (trend_id);
   `);
   ensured = true;
+}
+
+// The discussion under a trend: the reviewer's note when approving it, then
+// anything the manager, CEO, researcher or creator adds while it's produced.
+export interface TrendComment {
+  id: number;
+  trendId: number;
+  authorId: number;
+  author: string;
+  body: string;
+  createdAt: string;
 }
 
 export interface Trend {
@@ -50,6 +69,7 @@ export interface Trend {
   createdById: number;
   createdBy: string;
   createdAt: string;
+  comments: TrendComment[];
 }
 
 interface TrendRow {
@@ -75,7 +95,48 @@ const SELECT = `
   LEFT JOIN users c ON c.id = t.created_by
   LEFT JOIN users r ON r.id = t.reviewed_by`;
 
-function toTrend(r: TrendRow): Trend {
+interface CommentRow {
+  id: number;
+  trend_id: number;
+  user_id: number;
+  author_name: string | null;
+  body: string;
+  created_at: string;
+}
+
+// Every comment on these trends, oldest first, grouped by trend.
+function commentsFor(trendIds: number[]): Map<number, TrendComment[]> {
+  const out = new Map<number, TrendComment[]>();
+  if (trendIds.length === 0) return out;
+  const rows = rawDb
+    .prepare(
+      `SELECT c.*, u.name AS author_name FROM trend_comments c
+       LEFT JOIN users u ON u.id = c.user_id
+       WHERE c.trend_id IN (${trendIds.map(() => "?").join(",")})
+       ORDER BY c.created_at, c.id`
+    )
+    .all(...trendIds) as CommentRow[];
+  for (const r of rows) {
+    const list = out.get(r.trend_id) ?? [];
+    list.push({
+      id: r.id,
+      trendId: r.trend_id,
+      authorId: r.user_id,
+      author: r.author_name || "(deleted user)",
+      body: r.body,
+      createdAt: r.created_at,
+    });
+    out.set(r.trend_id, list);
+  }
+  return out;
+}
+
+function toTrends(rows: TrendRow[]): Trend[] {
+  const comments = commentsFor(rows.map((r) => r.id));
+  return rows.map((r) => toTrend(r, comments.get(r.id) ?? []));
+}
+
+function toTrend(r: TrendRow, comments: TrendComment[]): Trend {
   return {
     id: r.id,
     date: r.date,
@@ -91,6 +152,7 @@ function toTrend(r: TrendRow): Trend {
     createdById: r.created_by,
     createdBy: r.creator_name || "(deleted user)",
     createdAt: r.created_at,
+    comments,
   };
 }
 
@@ -122,13 +184,13 @@ export function listTrends(filter: {
        ORDER BY t.date DESC, t.id DESC`
     )
     .all(...args) as TrendRow[];
-  return rows.map(toTrend);
+  return toTrends(rows);
 }
 
 export function getTrend(id: number): Trend | null {
   ensureTrendTables();
   const row = rawDb.prepare(`${SELECT} WHERE t.id = ?`).get(id) as TrendRow | undefined;
-  return row ? toTrend(row) : null;
+  return row ? toTrends([row])[0] : null;
 }
 
 // Per-day counts for the calendar strip.
@@ -247,5 +309,30 @@ export function reviewTrend(
 
 export function deleteTrend(id: number): void {
   ensureTrendTables();
-  rawDb.prepare("DELETE FROM trend_suggestions WHERE id = ?").run(id);
+  rawDb.transaction(() => {
+    rawDb.prepare("DELETE FROM trend_comments WHERE trend_id = ?").run(id);
+    rawDb.prepare("DELETE FROM trend_suggestions WHERE id = ?").run(id);
+  })();
+}
+
+export function getTrendComment(id: number): TrendComment | null {
+  ensureTrendTables();
+  const row = rawDb.prepare("SELECT trend_id FROM trend_comments WHERE id = ?").get(id) as
+    | { trend_id: number }
+    | undefined;
+  if (!row) return null;
+  return commentsFor([row.trend_id]).get(row.trend_id)?.find((c) => c.id === id) ?? null;
+}
+
+export function addTrendComment(trendId: number, userId: number, body: string): TrendComment {
+  ensureTrendTables();
+  const info = rawDb
+    .prepare("INSERT INTO trend_comments (trend_id, user_id, body, created_at) VALUES (?, ?, ?, ?)")
+    .run(trendId, userId, body.trim(), new Date().toISOString());
+  return getTrendComment(Number(info.lastInsertRowid))!;
+}
+
+export function deleteTrendComment(id: number): void {
+  ensureTrendTables();
+  rawDb.prepare("DELETE FROM trend_comments WHERE id = ?").run(id);
 }

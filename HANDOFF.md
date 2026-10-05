@@ -137,7 +137,12 @@ viewAllProduction / doProduction / viewTeam`. API routes check these;
 `trend_suggestions`: date, kind (reel|carousel), url, niche, models (JSON),
 justification, status (pending|approved|rejected), review note/by/at,
 created_by. Editing a rejected one resets it to pending. A trend with
-production tasks can't be un-approved or deleted.
+production tasks can't be un-approved or deleted. `review_note` is only the
+rejection reason; an approval's optional note goes into `trend_comments`
+(trend, user, body) as the first comment. Comments ride along on every
+`Trend` (`listTrends`/`getTrend`, so production tasks get them too);
+`/api/trends/comments` adds/deletes them for anyone who can see the trend
+(reviewers, managers, its researcher, creators with a task on it).
 
 ### 5.3 Production (`services/production.ts`, `/api/production`)
 `production_tasks` (trend, method service+id, assignee, example model/url,

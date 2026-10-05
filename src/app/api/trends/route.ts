@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/services/auth";
 import { requireClockedIn } from "@/lib/services/clock-gate";
 import { can } from "@/lib/roles";
 import {
+  addTrendComment,
   createTrend,
   deleteTrend,
   getTrend,
@@ -89,6 +90,15 @@ export async function PATCH(request: NextRequest) {
         { error: "This trend already has production tasks — delete those first" },
         { status: 409 }
       );
+    }
+    // An approval's note starts the trend's comment thread, where the
+    // researcher and later the creator can reply; review_note stays the
+    // rejection reason.
+    if (body.review === "approved") {
+      const note = typeof body.note === "string" ? body.note.trim() : "";
+      const approved = reviewTrend(trend.id, "approved", null, user.id);
+      if (note) addTrendComment(trend.id, user.id, note);
+      return NextResponse.json(note ? getTrend(trend.id) : approved);
     }
     return NextResponse.json(reviewTrend(trend.id, body.review, body.note ?? null, user.id));
   }
