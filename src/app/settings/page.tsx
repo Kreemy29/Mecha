@@ -49,7 +49,9 @@ export default function SettingsPage() {
   // sleeping Render instance can take a minute); "paste" when this hosted copy
   // has to finish by pasting back the address Higgsfield sent the browser to.
   const [hfConnecting, setHfConnecting] = useState(false);
-  const [hfPaste, setHfPaste] = useState<{ authUrl: string } | null>(null);
+  // authUrl is null when the box was reopened by hand ("Already approved?")
+  // after a reload: the sign-in is still pending server-side.
+  const [hfPaste, setHfPaste] = useState<{ authUrl: string | null } | null>(null);
   const [hfPastedUrl, setHfPastedUrl] = useState("");
   const [hfFinishing, setHfFinishing] = useState(false);
 
@@ -188,9 +190,12 @@ export default function SettingsPage() {
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       if (data.mode === "paste") {
+        // Not window.open: after the await it's no longer a click, so it gets
+        // blocked or turned into a pop-up with no address bar (and the
+        // address is exactly what has to be copied). The box offers a real
+        // link to open in a normal tab instead.
         setHfPaste({ authUrl: data.authUrl });
         setHfPastedUrl("");
-        window.open(data.authUrl, "_blank", "noopener");
       } else {
         window.location.href = data.authUrl;
       }
@@ -360,25 +365,49 @@ export default function SettingsPage() {
                 If the server was asleep this can take up to a minute.
               </p>
             )}
+            {!hfPaste && !hfConnecting && (
+              <button
+                type="button"
+                onClick={() => setHfPaste({ authUrl: null })}
+                className="block text-xs text-muted-foreground hover:text-foreground hover:underline"
+              >
+                Already approved on Higgsfield and have a localhost:8765 address? Paste it here
+              </button>
+            )}
 
             {/* Hosted copies finish by pasting the address Higgsfield sends
                 the browser to (it only accepts localhost return addresses). */}
             {hfPaste && (
               <div className="space-y-2 rounded-xl border border-brand/30 bg-brand/[0.05] p-3 text-xs">
-                <p className="font-medium text-sm">Finish connecting</p>
-                <ol className="list-decimal space-y-1 pl-4 text-muted-foreground">
+                <p className="font-medium text-sm">Finish connecting (3 steps)</p>
+                <ol className="list-decimal space-y-1.5 pl-4 text-muted-foreground">
                   <li>
-                    Sign in and approve on the Higgsfield tab that just opened (
-                    <a href={hfPaste.authUrl} target="_blank" rel="noreferrer" className="text-brand hover:underline">
-                      open it again
-                    </a>
-                    ).
+                    {hfPaste.authUrl ? (
+                      <>
+                        <a
+                          href={hfPaste.authUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 rounded-lg bg-brand px-2.5 py-1 font-medium text-brand-foreground hover:bg-brand/90"
+                        >
+                          Open Higgsfield sign-in
+                        </a>{" "}
+                        (a new tab), sign in and click <strong>Continue</strong>.
+                      </>
+                    ) : (
+                      <>Sign in on Higgsfield and click <strong>Continue</strong> (already done if you&apos;re back here).</>
+                    )}
                   </li>
                   <li>
-                    Higgsfield then sends that tab to a <span className="font-mono">localhost:8765</span> page that
-                    won&apos;t load. That&apos;s expected.
+                    That tab then shows <strong>&ldquo;This site can&apos;t be reached&rdquo;</strong> for{" "}
+                    <span className="font-mono">localhost</span>. That&apos;s expected: the sign-in code is in its
+                    address.
                   </li>
-                  <li>Copy the whole address from that tab&apos;s address bar and paste it here.</li>
+                  <li>
+                    In that tab, click the address bar (or press <strong>Ctrl+L</strong>), copy it (
+                    <strong>Ctrl+C</strong>), come back here, paste it below and click <strong>Connect</strong>.
+                    Do it within a few minutes; the code expires.
+                  </li>
                 </ol>
                 <div className="flex gap-2">
                   <Input
