@@ -175,7 +175,7 @@ says who was notified and names anyone it couldn't reach.
 | **Instagram** | Save Instagram accounts (tagged by model and niche), browse their reels, save clips, send them to requests or recreation |
 | **Requests** | Work queues (Meta Ads / Reels): a clip handed to someone to produce, with a model, a format and a comment thread |
 | **Formats** | Weekly board of "winning formats" (reference reels), each with a method and per-model quotas |
-| **Images** | Pinterest / upload references → Grok writes a subject-swap prompt → Higgsfield Soul renders stills → review, redo with notes, download |
+| **Images** | Pinterest / upload / **Google Drive** references → Grok writes a subject-swap prompt → Higgsfield Soul renders stills → review, redo with notes, download. Pick a Drive in Setup and every image is also saved there under `outputs/<model>/<date>/` automatically |
 | **Seedance** | Batch video recreation: N videos × M outfits → a still per combination → Seedance video from still + reference video |
 | **Motion capture** | Motion transfer: pick a frame, approve the still, animate with Wan Animate (RunningHub) or Kling 3.0 (Higgsfield) |
 | **Methods** | Your Higgsfield and Yapper generation history (prompt, settings, references, output). **Save** the good ones so they can be assigned in Production |

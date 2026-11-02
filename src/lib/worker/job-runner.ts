@@ -3,6 +3,12 @@ import { eq, inArray } from "drizzle-orm";
 import { getProvider, registerProvider } from "./providers.js";
 import { FalProvider } from "./fal-provider.js";
 import { HiggsfieldProvider } from "./higgsfield-provider.js";
+import {
+  disconnectHiggsField,
+  HIGGSFIELD_SIGNED_OUT,
+  isHiggsfieldAuthError,
+} from "../services/higgsfield.js";
+import { saveOutput as saveDriveOutput } from "../services/google-drive.js";
 import path from "path";
 
 const POLL_INTERVAL_MS = 3000;
@@ -35,6 +41,37 @@ function getCharacterRefs(characterId: number | null): {
     soulId: character?.higgsFieldCharacterRef || null,
     faceUrl: character?.baseImagePath || null,
   };
+}
+
+// Images page jobs that picked a Drive: file the output under
+// outputs/<model>/<date>/ there, and note where (or why not) on the job.
+async function copyToDrive(jobId: number, outputPath: string): Promise<void> {
+  const params = getJob(jobId)?.providerParams;
+  const target = params?.drive;
+  if (!params || !target) return;
+  let driveUpload: NonNullable<typeof params.driveUpload>;
+  try {
+    const ext = path.extname(outputPath) || ".png";
+    const saved = await saveDriveOutput({
+      rootId: target.rootId,
+      model: target.model,
+      date: target.date,
+      filePath: outputPath,
+      fileName: `${target.model} ${target.date} #${jobId}${ext}`,
+    });
+    driveUpload = { ok: true, url: saved.url ?? undefined, folder: saved.folder, at: new Date().toISOString() };
+    console.log(`[JobRunner] Job ${jobId} saved to Drive: ${target.rootName ?? target.rootId}/${saved.folder}`);
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    driveUpload = { ok: false, error, at: new Date().toISOString() };
+    console.error(`[JobRunner] Job ${jobId} Drive copy failed:`, error);
+  }
+  // Re-read: the job may have been approved meanwhile.
+  const latest = getJob(jobId)?.providerParams ?? params;
+  db.update(schema.jobs)
+    .set({ providerParams: { ...latest, driveUpload } })
+    .where(eq(schema.jobs.id, jobId))
+    .run();
 }
 
 function resolveProvider(providerName: string, modelKey?: string | null) {
@@ -215,17 +252,26 @@ export async function processJob(jobId: number): Promise<void> {
           })
           .where(eq(schema.jobs.id, jobId))
           .run();
+        // After the job is marked done, so the image shows up straight away
+        // and a Drive hiccup never fails a paid-for generation.
+        if (job.providerParams?.drive) await copyToDrive(jobId, outputPath);
         return;
       }
 
       break;
     }
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
+    const rawMsg = err instanceof Error ? err.message : String(err);
+    // A rejected Higgsfield login won't fix itself between retries: fail now
+    // and say how to fix it, and drop the dead connection so the next job
+    // reconnects with whatever token is on file then.
+    const authFailed = isHiggsfieldAuthError(rawMsg);
+    if (authFailed) disconnectHiggsField();
+    const errorMsg = authFailed ? HIGGSFIELD_SIGNED_OUT : rawMsg;
     const currentJob = getJob(jobId);
     const attempts = (currentJob?.attempts || 0) + 1;
 
-    if (attempts < MAX_ATTEMPTS) {
+    if (attempts < MAX_ATTEMPTS && !authFailed) {
       db.update(schema.jobs)
         .set({
           status: "queued",

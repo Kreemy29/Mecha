@@ -74,6 +74,8 @@ function resolveAccountId(accountId?: string): string | null {
   return accountId || getActiveAccountId();
 }
 
+const refreshesInFlight = new Map<string, Promise<HiggsfieldAccount>>();
+
 async function getValidAccessToken(accountId?: string): Promise<string | null> {
   const id = resolveAccountId(accountId);
   if (!id) return process.env.HIGGSFIELD_OAUTH_TOKEN || null;
@@ -85,7 +87,16 @@ async function getValidAccessToken(accountId?: string): Promise<string | null> {
     account.expiresAt !== undefined && Date.now() > account.expiresAt - REFRESH_SKEW_MS;
   if (expired) {
     try {
-      account = await refreshAccessToken(account);
+      // Several jobs start at once after the token has lapsed (e.g. a batch of
+      // images). Refreshing once per job would spend the single-use refresh
+      // token several times, and the reuse can get the whole login revoked
+      // (every job then fails "Unauthorized"). Share one refresh per account.
+      let pending = refreshesInFlight.get(id);
+      if (!pending) {
+        pending = refreshAccessToken(account).finally(() => refreshesInFlight.delete(id));
+        refreshesInFlight.set(id, pending);
+      }
+      account = await pending;
     } catch (err) {
       // The web process and the worker process both read/write the accounts
       // file but not memory. Higgsfield's refresh_token is single-use and
@@ -105,6 +116,13 @@ async function getValidAccessToken(accountId?: string): Promise<string | null> {
   return account.accessToken;
 }
 
+export const HIGGSFIELD_SIGNED_OUT =
+  "Higgsfield sign-in expired or was rejected. Reconnect it in Settings → Connections, then retry.";
+
+// The MCP server's answer when the token is no good.
+export const isHiggsfieldAuthError = (msg: string) =>
+  msg === HIGGSFIELD_SIGNED_OUT || /"error"\s*:\s*"Unauthorized"|\b401\b/.test(msg);
+
 // ── MCP Client, one connection per account ──
 
 const clientsByAccount = new Map<
@@ -118,6 +136,9 @@ export async function getHiggsFieldClient(accountId?: string): Promise<Client> {
     throw new Error("No Higgsfield account connected — go to Settings to connect one.");
   }
   const accessToken = await getValidAccessToken(id);
+  // Connecting without a token only earns a bare "Unauthorized" from the MCP
+  // server; say what actually needs doing.
+  if (!accessToken) throw new Error(HIGGSFIELD_SIGNED_OUT);
 
   // Reuse the existing connection unless the token changed (e.g. after refresh).
   const existing = clientsByAccount.get(id);

@@ -74,7 +74,9 @@ export async function POST(
         status: "queued",
         provider: job.provider,
         providerModel: job.providerModel,
-        providerParams: job.providerParams,
+        // The redo goes to the same Drive folder, but where the old still
+        // landed there is the old job's, not this one's.
+        providerParams: job.providerParams ? { ...job.providerParams, driveUpload: undefined } : null,
         prompt: newPrompt,
         promptHistory: history,
         attempts: 0,

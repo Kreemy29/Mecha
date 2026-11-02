@@ -108,6 +108,12 @@ export const jobs = sqliteTable("jobs", {
     // Explicit reference images (paths or URLs) passed to the model as medias.
     // Used by the nano-banana background swap: [subject still, new background].
     mediaRefs?: string[];
+    // Images page: copy the finished output into this Drive, under
+    // outputs/<model>/<date>/ (services/google-drive.ts). `date` is the
+    // creator's local day, sent by the browser.
+    drive?: { rootId: string; rootName?: string; model: string; date: string };
+    // Written by the worker after that copy: where it landed, or why not.
+    driveUpload?: { ok: boolean; url?: string; folder?: string; error?: string; at: string };
   }>(),
   providerJobId: text("provider_job_id"),
   prompt: text("prompt"),

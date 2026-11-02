@@ -223,6 +223,18 @@ through Apify instead (costs credits, never automatic).
 
 ## 6. Generation pipelines
 
+### 6.0 Google Drive on the Images page (`services/google-drive.ts`, `/api/drive*`)
+A service account (`GOOGLE_SERVICE_ACCOUNT_JSON`; JWT signed with node
+crypto, no googleapis package). It sees only what's shared with its
+`client_email`. Setup lists those roots; References → Drive browses any
+folder and imports images through `saveUploadedImage`. Jobs carry
+`providerParams.drive {rootId, model (character name), date (browser's local
+day)}`; after a job succeeds the **worker** uploads the output to
+`<root>/outputs/<model>/<date>/` and writes `providerParams.driveUpload`
+(ok/url/folder or error); a Drive failure never fails the job. Folder creation
+is de-duplicated in-process. Outputs only work inside a **Shared Drive**
+(service accounts have no storage quota); `outputsCheck` warns otherwise.
+
 ### 6.1 Seedance batch (`/seedance`)
 `Setup → Videos → Background → Outfits → Stills → Seedance`: N videos × M
 outfits = variants; Grok writes each still's recreation prompt, Higgsfield

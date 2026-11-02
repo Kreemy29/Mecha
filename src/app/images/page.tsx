@@ -35,7 +35,11 @@ import {
   Layers as LayersIcon,
   Flame,
   Upload,
+  HardDrive,
+  ExternalLink,
 } from "lucide-react";
+import { DrivePicker } from "@/components/drive/drive-picker";
+import { todayLocal } from "@/lib/day";
 
 interface Character {
   id: number;
@@ -69,7 +73,21 @@ interface Job {
   attempts: number;
   error: string | null;
   promptHistory: Array<Record<string, unknown>>;
+  providerParams?: {
+    drive?: { rootId: string; rootName?: string; model: string; date: string };
+    driveUpload?: { ok: boolean; url?: string; folder?: string; error?: string };
+  } | null;
 }
+
+interface DriveRoot {
+  id: string;
+  name: string;
+  kind: "shared_drive" | "folder";
+}
+
+// Still waiting for the worker to copy this output into Drive?
+const awaitingDrive = (j: Job) =>
+  j.status === "succeeded" && !!j.providerParams?.drive && !j.providerParams?.driveUpload;
 
 interface ProviderModel {
   key: string;
@@ -122,7 +140,18 @@ export default function ImagesPage() {
   const [selectedRefs, setSelectedRefs] = useState<Set<number>>(new Set());
   const [loadingRefs, setLoadingRefs] = useState(false);
   const [searchingQuery, setSearchingQuery] = useState<string | null>(null);
-  const [refSource, setRefSource] = useState<"pinterest" | "upload">("pinterest");
+  const [refSource, setRefSource] = useState<"pinterest" | "upload" | "drive">("pinterest");
+
+  // Google Drive: where references can be imported from and where every
+  // generated image is filed (outputs/<model>/<date>/ in the same Drive).
+  const [driveRoots, setDriveRoots] = useState<DriveRoot[]>([]);
+  const [driveState, setDriveState] = useState<{ configured: boolean; email: string | null; error?: string }>({
+    configured: false,
+    email: null,
+  });
+  const [driveRoot, setDriveRoot] = useState<DriveRoot | null>(null);
+  const [driveCheck, setDriveCheck] = useState<{ ok: boolean; reason: string | null } | null>(null);
+  const [saveToDrive, setSaveToDrive] = useState(true);
   const [uploading, setUploading] = useState(false);
   const refFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -153,7 +182,32 @@ export default function ImagesPage() {
     setCharacters(await charsRes.json());
     setPresets((await presetsRes.json()).filter((p: Preset) => p.active));
     setProviders(await providersRes.json());
+    try {
+      const d = await (await fetch("/api/drive")).json();
+      setDriveState({ configured: !!d.configured, email: d.email ?? null, error: d.error });
+      setDriveRoots(Array.isArray(d.roots) ? d.roots : []);
+    } catch {
+      setDriveState({ configured: false, email: null, error: "Couldn't reach Google Drive" });
+    }
   }, []);
+
+  const pickDriveRoot = async (root: DriveRoot | null) => {
+    setDriveRoot(root);
+    setDriveCheck(null);
+    if (!root) return;
+    try {
+      const d = await (await fetch(`/api/drive?check=${encodeURIComponent(root.id)}`)).json();
+      setDriveCheck(d.error ? { ok: false, reason: d.error } : d);
+    } catch {
+      setDriveCheck({ ok: false, reason: "Couldn't check this Drive" });
+    }
+  };
+
+  // The Drive target sent with each job, if outputs should be filed there.
+  const driveTarget =
+    driveRoot && saveToDrive && driveCheck?.ok && selectedCharacter
+      ? { rootId: driveRoot.id, rootName: driveRoot.name, model: selectedCharacter.name, date: todayLocal() }
+      : undefined;
 
   useEffect(() => {
     fetchInitialData();
@@ -174,8 +228,9 @@ export default function ImagesPage() {
           (j) => !["queued", "running", "polling"].includes(j.status)
         );
         if (allDone) {
-          setPollingJobs(false);
           setStep("review");
+          // Keep polling a little longer while the worker files outputs in Drive.
+          if (!updated.some(awaitingDrive)) setPollingJobs(false);
         }
       } catch {
         // silent
@@ -185,7 +240,8 @@ export default function ImagesPage() {
   }, [pollingJobs, jobs]);
 
   // ── Step 1: Setup ──
-  const canProceedSetup = selectedCharacter && selectedPreset && selectedProvider && selectedModel;
+  // A preset is only needed to search Pinterest; Drive and upload skip it.
+  const canProceedSetup = selectedCharacter && selectedProvider && selectedModel;
   const currentProviderInfo = providers.find((p) => p.id === selectedProvider);
   const currentModelInfo = currentProviderInfo?.models.find((m) => m.key === selectedModel);
 
@@ -371,6 +427,7 @@ export default function ImagesPage() {
         aspectRatio: genAspectRatio,
         enhancePrompt: genEnhance,
         sceneRefUrl: rp.sceneRefUrl,
+        ...(driveTarget ? { drive: driveTarget } : {}),
       };
       // batch size = number of images per prompt (one job each)
       for (let i = 0; i < genBatchSize; i++) {
@@ -625,6 +682,69 @@ export default function ImagesPage() {
             </CardContent>
           </Card>
 
+          {/* Google Drive: references in, outputs filed by model and day */}
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <HardDrive className="h-4 w-4" /> Google Drive
+                <span className="text-xs font-normal text-muted-foreground">optional</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {!driveState.configured ? (
+                <p className="text-xs text-muted-foreground">
+                  {driveState.error || "Google Drive isn't set up on the server."}
+                </p>
+              ) : driveRoots.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No Drive is shared with the app yet. Share a Shared Drive (or a folder inside one) with{" "}
+                  <span className="font-mono text-foreground">{driveState.email}</span> as Content manager, then reload.
+                </p>
+              ) : (
+                <>
+                  <div className="flex flex-wrap gap-2">
+                    {driveRoots.map((r) => (
+                      <button
+                        key={r.id}
+                        onClick={() => pickDriveRoot(driveRoot?.id === r.id ? null : r)}
+                        className={`flex items-center gap-2 p-3 rounded-xl text-sm transition-all ${
+                          driveRoot?.id === r.id ? "glass-strong border-brand/30" : "glass hover:bg-white/5"
+                        }`}
+                      >
+                        <HardDrive className="h-4 w-4 text-brand" />
+                        {r.name}
+                      </button>
+                    ))}
+                  </div>
+                  {driveRoot && (
+                    <div className="space-y-1.5 text-xs">
+                      <p className="text-muted-foreground">
+                        Import references from it in the References step (any folder, however it&apos;s organised).
+                      </p>
+                      {driveCheck === null ? (
+                        <p className="flex items-center gap-1.5 text-muted-foreground">
+                          <Loader2 className="h-3 w-3 animate-spin" /> Checking it can store outputs…
+                        </p>
+                      ) : driveCheck.ok ? (
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <Checkbox checked={saveToDrive} onCheckedChange={(v) => setSaveToDrive(v === true)} />
+                          <span>
+                            Save every generated image to{" "}
+                            <span className="font-mono text-foreground">
+                              {driveRoot.name}/outputs/{selectedCharacter?.name || "<model>"}/{todayLocal()}/
+                            </span>
+                          </span>
+                        </label>
+                      ) : (
+                        <p className="text-orange-400">Outputs can&apos;t be saved here: {driveCheck.reason}</p>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Provider + Model Selection */}
           <Card className="lg:col-span-2">
             <CardHeader>
@@ -678,12 +798,19 @@ export default function ImagesPage() {
             <Button
               disabled={!canProceedSetup}
               onClick={() => {
-                handleGeneratePrompts();
-                setStep("prompts");
+                if (selectedPreset) {
+                  handleGeneratePrompts();
+                  setRefSource("pinterest");
+                  setStep("prompts");
+                } else {
+                  // No preset = no Pinterest search; go pick references.
+                  setRefSource(driveRoot ? "drive" : "upload");
+                  setStep("references");
+                }
               }}
               className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-2"
             >
-              Next: Search Query
+              {selectedPreset ? "Next: Search Query" : "Next: References"}
               <Wand2 className="h-4 w-4" />
             </Button>
           </div>
@@ -801,9 +928,21 @@ export default function ImagesPage() {
                   >
                     Upload
                   </button>
+                  {driveRoot && (
+                    <button
+                      onClick={() => setRefSource("drive")}
+                      className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 ${
+                        refSource === "drive"
+                          ? "bg-white/10 text-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <HardDrive className="h-3 w-3" /> Drive
+                    </button>
+                  )}
                 </div>
 
-                {refSource === "pinterest" ? (
+                {refSource === "drive" ? null : refSource === "pinterest" ? (
                   <Button
                     onClick={handleFetchReferences}
                     disabled={loadingRefs}
@@ -866,13 +1005,31 @@ export default function ImagesPage() {
               </div>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            {refSource === "drive" && driveRoot && (
+              <DrivePicker
+                rootId={driveRoot.id}
+                rootName={driveRoot.name}
+                onImported={(refs) => {
+                  // Picked in the browser already, so select them too.
+                  const start = pinterestResults.length;
+                  setPinterestResults((prev) => [...prev, ...refs]);
+                  setSelectedRefs((prev) => {
+                    const next = new Set(prev);
+                    refs.forEach((_, i) => next.add(start + i));
+                    return next;
+                  });
+                }}
+              />
+            )}
             {pinterestResults.length === 0 && !loadingRefs && !uploading ? (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                {refSource === "upload"
-                  ? "Upload images from your computer to use as references, then select the ones to recreate."
-                  : "Click fetch to search Pinterest with your generated prompts."}
-              </p>
+              refSource === "drive" ? null : (
+                <p className="text-sm text-muted-foreground text-center py-8">
+                  {refSource === "upload"
+                    ? "Upload images from your computer to use as references, then select the ones to recreate."
+                    : "Click fetch to search Pinterest with your generated prompts."}
+                </p>
+              )
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
                 {pinterestResults.map((ref, i) => (
@@ -1171,6 +1328,38 @@ export default function ImagesPage() {
 
                   {job.error && (
                     <p className="text-xs text-red-400/80">{job.error}</p>
+                  )}
+
+                  {/* Where the worker filed it in Drive */}
+                  {job.status === "succeeded" && job.providerParams?.drive && (
+                    <div className="flex items-center gap-1.5 text-[11px]">
+                      <HardDrive className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      {!job.providerParams.driveUpload ? (
+                        <span className="flex items-center gap-1 text-muted-foreground">
+                          <Loader2 className="h-3 w-3 animate-spin" /> Saving to Drive…
+                        </span>
+                      ) : job.providerParams.driveUpload.ok ? (
+                        <>
+                          <span className="truncate text-muted-foreground">
+                            Saved to {job.providerParams.drive.rootName}/{job.providerParams.driveUpload.folder}
+                          </span>
+                          {job.providerParams.driveUpload.url && (
+                            <a
+                              href={job.providerParams.driveUpload.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="ml-auto shrink-0 text-brand hover:underline flex items-center gap-0.5"
+                            >
+                              Open <ExternalLink className="h-3 w-3" />
+                            </a>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-orange-400 line-clamp-2">
+                          Not saved to Drive: {job.providerParams.driveUpload.error}
+                        </span>
+                      )}
+                    </div>
                   )}
 
                   {/* Rejection note + redo workflow */}
