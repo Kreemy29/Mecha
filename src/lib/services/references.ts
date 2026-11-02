@@ -6,8 +6,14 @@ import { resolveVideoUrl } from "./instagram";
 const STORAGE_DIR = path.resolve("./storage/references");
 
 // Resolve the ffmpeg binary. Falls back to bare "ffmpeg" (PATH), but can be
-// pinned via FFMPEG_PATH for environments where it isn't on PATH.
-const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
+// pinned via FFMPEG_PATH for environments where it isn't on PATH. A pinned
+// path that no longer exists (e.g. ffmpeg reinstalled to a new versioned
+// folder) falls back to PATH too, instead of failing with a shell error.
+const PINNED_FFMPEG = process.env.FFMPEG_PATH?.trim();
+const FFMPEG = PINNED_FFMPEG && fs.existsSync(PINNED_FFMPEG) ? PINNED_FFMPEG : "ffmpeg";
+if (PINNED_FFMPEG && FFMPEG !== PINNED_FFMPEG) {
+  console.warn(`[ffmpeg] FFMPEG_PATH not found (${PINNED_FFMPEG}); using "ffmpeg" from PATH`);
+}
 // ffprobe ships alongside ffmpeg — derive its path from FFMPEG unless overridden.
 const FFPROBE =
   process.env.FFPROBE_PATH || FFMPEG.replace(/ffmpeg(\.exe)?$/i, "ffprobe$1");
@@ -289,7 +295,7 @@ export async function extractFramesFromVideo(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(
-      `ffmpeg frame extraction failed (is ffmpeg on PATH?): ${msg}`
+      `ffmpeg frame extraction failed (is ffmpeg installed? FFMPEG_PATH or PATH, currently "${FFMPEG}"): ${msg}`
     );
   }
 
