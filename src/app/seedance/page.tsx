@@ -30,6 +30,8 @@ import {
   Star,
   Users,
   X,
+  FileText,
+  Copy,
 } from "lucide-react";
 import {
   applyOverrides,
@@ -52,6 +54,18 @@ interface Job {
   outputPath: string | null;
   error: string | null;
   attempts: number;
+  // What this job was rendered with. A rejected still's redo gets a prompt
+  // rewritten server-side, so each candidate can differ from the shot's.
+  prompt?: string | null;
+}
+
+// JSON prompts read better indented; anything else is shown as is.
+function prettyPrompt(p: string): string {
+  try {
+    return JSON.stringify(JSON.parse(p), null, 2);
+  } catch {
+    return p;
+  }
 }
 
 // A reusable background. `description` is frozen text, injected verbatim.
@@ -285,6 +299,10 @@ export default function SeedancePage() {
   const [chestText, setChestText] = useState("");
   const [buttText, setButtText] = useState("");
   const [savingPreset, setSavingPreset] = useState<string | null>(null);
+  // Per shot, what its prompt panel shows: the editable prompt for the next
+  // still ("next", the default), one candidate's own prompt (its job id), or
+  // nothing ("hidden").
+  const [promptView, setPromptView] = useState<Record<string, "next" | "hidden" | number>>({});
   // Which shot's video prompt is currently being fetched ("videoId:framePath").
   const [loadingVideoPrompt, setLoadingVideoPrompt] = useState<string | null>(null);
 
@@ -990,6 +1008,28 @@ export default function SeedancePage() {
       toast.success("Post-process queued — the edit appears as a new candidate");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Post-process failed");
+    }
+  };
+
+  // Write a shot's prompt into its box without rendering anything, so it can
+  // be read and edited first. Generate Still then uses the box as is.
+  const writePrompt = async (v: Variant) => {
+    patchVariant(v.id, { writing: true });
+    try {
+      patchVariant(v.id, { recreationPrompt: await buildPrompt(v), writing: false });
+      setPromptView((p) => ({ ...p, [v.id]: "next" }));
+    } catch (err: unknown) {
+      patchVariant(v.id, { writing: false });
+      toast.error(err instanceof Error ? err.message : "Could not write the prompt");
+    }
+  };
+
+  const copyPrompt = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("Prompt copied");
+    } catch {
+      toast.error("Couldn't copy");
     }
   };
 
@@ -2535,8 +2575,118 @@ export default function SeedancePage() {
                             </div>
                           </div>
                         </CardHeader>
-                        {v.stillJobs.length > 0 && (
-                          <CardContent>
+                        <CardContent className="space-y-3">
+                          {(() => {
+                            // The prompt panel: the editable prompt the next
+                            // still will use, or a candidate's own (read-only).
+                            const view = promptView[v.id] ?? "next";
+                            if (view === "hidden") {
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => setPromptView((p) => ({ ...p, [v.id]: "next" }))}
+                                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                                >
+                                  <FileText className="h-3.5 w-3.5" /> Show prompt
+                                </button>
+                              );
+                            }
+                            const viewedJob =
+                              typeof view === "number" ? v.stillJobs.find((j) => j.id === view) : undefined;
+                            const shown = viewedJob ? prettyPrompt(viewedJob.prompt || "") : v.recreationPrompt;
+                            return (
+                              <div className="rounded-xl border border-white/10 bg-white/[0.02] p-2.5 space-y-2">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                                  <span className="text-xs font-medium">
+                                    {viewedJob ? `Prompt used for #${viewedJob.id}` : "Prompt for the next still"}
+                                  </span>
+                                  {viewedJob && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setPromptView((p) => ({ ...p, [v.id]: "next" }))}
+                                      className="text-[11px] text-brand hover:underline"
+                                    >
+                                      back to editing
+                                    </button>
+                                  )}
+                                  <div className="ml-auto flex items-center gap-1">
+                                    {viewedJob && viewedJob.prompt && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-6 rounded-lg border-white/10 px-2 text-[11px]"
+                                        title="Make this the prompt for the next still"
+                                        onClick={() => {
+                                          patchVariant(v.id, { recreationPrompt: shown });
+                                          setPromptView((p) => ({ ...p, [v.id]: "next" }));
+                                        }}
+                                      >
+                                        Use this prompt
+                                      </Button>
+                                    )}
+                                    {!viewedJob && !ready && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-6 rounded-lg border-white/10 px-2 text-[11px] gap-1"
+                                        disabled={v.writing}
+                                        title={
+                                          v.recreationPrompt.trim()
+                                            ? "Throw this prompt away and have it written again"
+                                            : "Write the prompt without rendering, so you can read it first"
+                                        }
+                                        onClick={() => writePrompt(v)}
+                                      >
+                                        {v.writing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                                        {v.recreationPrompt.trim() ? "Rewrite" : "Write prompt"}
+                                      </Button>
+                                    )}
+                                    {shown.trim() && (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-6 w-6 p-0"
+                                        title="Copy prompt"
+                                        onClick={() => copyPrompt(shown)}
+                                      >
+                                        <Copy className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-6 w-6 p-0"
+                                      title="Hide prompt"
+                                      onClick={() => setPromptView((p) => ({ ...p, [v.id]: "hidden" }))}
+                                    >
+                                      <X className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                </div>
+                                {viewedJob ? (
+                                  <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/20 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
+                                    {shown || "No prompt was recorded for this still."}
+                                  </pre>
+                                ) : v.recreationPrompt.trim() || v.writing ? (
+                                  <Textarea
+                                    value={v.recreationPrompt}
+                                    onChange={(e) => patchVariant(v.id, { recreationPrompt: e.target.value })}
+                                    disabled={v.writing}
+                                    placeholder="Writing the prompt…"
+                                    rows={8}
+                                    className="max-h-64 font-mono text-[11px] leading-relaxed"
+                                  />
+                                ) : (
+                                  <p className="text-[11px] text-muted-foreground">
+                                    Not written yet. <strong>Write prompt</strong> shows it before any credits are spent;{" "}
+                                    <strong>Generate Still</strong> writes it automatically. Edits here are used as is.
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })()}
+                          {v.stillJobs.length > 0 && (
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                               {v.stillJobs.map((job) => {
                                 const approved = v.approvedStillPath === job.outputPath;
@@ -2589,12 +2739,28 @@ export default function SeedancePage() {
                                     {job.error && (
                                       <p className="text-[10px] text-red-400/80 line-clamp-2">{job.error}</p>
                                     )}
+                                    {job.prompt && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setPromptView((p) => ({
+                                            ...p,
+                                            [v.id]: p[v.id] === job.id ? "next" : job.id,
+                                          }))
+                                        }
+                                        className={`flex items-center gap-1 text-[10px] hover:text-foreground ${
+                                          promptView[v.id] === job.id ? "text-brand" : "text-muted-foreground"
+                                        }`}
+                                      >
+                                        <FileText className="h-3 w-3" /> Prompt
+                                      </button>
+                                    )}
                                   </div>
                                 );
                               })}
                             </div>
-                          </CardContent>
-                        )}
+                          )}
+                        </CardContent>
                       </Card>
                     );
                   })}
