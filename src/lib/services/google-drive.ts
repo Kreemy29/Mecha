@@ -266,6 +266,13 @@ async function findOrCreateFolder(parentId: string, name: string): Promise<strin
   }
 }
 
+// A folder made from the picker. If one by that name is already there, that
+// one is returned instead of a look-alike duplicate.
+export async function createFolder(parentId: string, name: string): Promise<{ id: string; name: string }> {
+  const clean = safeName(name);
+  return { id: await findOrCreateFolder(parentId, clean), name: clean };
+}
+
 const MIME_BY_EXT: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",

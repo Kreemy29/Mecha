@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ChevronRight, Folder, HardDrive, Loader2, Download, CheckSquare } from "lucide-react";
+import { ChevronRight, Folder, FolderPlus, HardDrive, Loader2, Download, CheckSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -39,8 +39,32 @@ export function DrivePicker({
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState(false);
+  const [creating, setCreating] = useState(false);
+  // Bumped to re-list the current folder (after making a folder in it).
+  const [reload, setReload] = useState(0);
 
   const here = trail[trail.length - 1];
+
+  const newFolder = async () => {
+    const name = window.prompt(`New folder in "${here.name}":`)?.trim();
+    if (!name) return;
+    setCreating(true);
+    try {
+      const res = await fetch("/api/drive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parentId: here.id, name }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      toast.success(`Created "${data.name}"`);
+      setReload((n) => n + 1);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't create the folder");
+    } finally {
+      setCreating(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -61,7 +85,7 @@ export function DrivePicker({
     return () => {
       cancelled = true;
     };
-  }, [here.id]);
+  }, [here.id, reload]);
 
   const folders = entries.filter((e) => e.isFolder);
   const images = entries.filter((e) => !e.isFolder);
@@ -128,6 +152,16 @@ export function DrivePicker({
           </span>
         ))}
         <div className="ml-auto flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={newFolder}
+            disabled={creating || loading}
+            className="h-7 rounded-lg border-white/10 gap-1.5 text-xs"
+          >
+            {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderPlus className="h-3.5 w-3.5" />}
+            New folder
+          </Button>
           {images.length > 0 && (
             <button type="button" onClick={toggleAllHere} className="text-muted-foreground hover:text-foreground">
               {allHerePicked ? "Unselect all here" : "Select all here"}
