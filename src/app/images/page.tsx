@@ -62,6 +62,8 @@ interface PinterestResult {
   thumbnailUrl: string;
   title: string;
   sourceUrl: string;
+  // Where it came from; a fresh Pinterest search only replaces Pinterest's own.
+  source?: "pinterest" | "upload" | "drive";
 }
 
 interface Job {
@@ -152,6 +154,7 @@ export default function ImagesPage() {
   const [driveRoot, setDriveRoot] = useState<DriveRoot | null>(null);
   const [driveCheck, setDriveCheck] = useState<{ ok: boolean; reason: string | null } | null>(null);
   const [saveToDrive, setSaveToDrive] = useState(true);
+  const [browsingDrive, setBrowsingDrive] = useState(false);
   const [uploading, setUploading] = useState(false);
   const refFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -250,9 +253,8 @@ export default function ImagesPage() {
     if (!selectedPreset) return;
     // Use the preset's search seed verbatim as the single Pinterest query.
     setSearchPrompts([selectedPreset.searchPromptSeed]);
-    // Reset anything fetched from a previous query.
-    setPinterestResults([]);
-    setSelectedRefs(new Set());
+    // References already imported (Drive, upload) are kept; a new Pinterest
+    // fetch replaces only earlier Pinterest results.
     setRecreationPrompts([]);
     toast.success("Loaded preset search query");
   };
@@ -260,8 +262,13 @@ export default function ImagesPage() {
   // ── Step 3: Fetch references ──
   const handleFetchReferences = async () => {
     setLoadingRefs(true);
-    setPinterestResults([]);
-    setSelectedRefs(new Set()); // indices change on a fresh fetch
+    // Drop the previous Pinterest results but keep imported ones, remapping
+    // the selection since it's by index.
+    const kept = pinterestResults
+      .map((r, i) => ({ r, i }))
+      .filter(({ r }) => r.source !== "pinterest");
+    setPinterestResults(kept.map(({ r }) => r));
+    setSelectedRefs(new Set(kept.flatMap(({ i }, n) => (selectedRefs.has(i) ? [n] : []))));
 
     let total = 0;
     let lastError = "";
@@ -280,7 +287,10 @@ export default function ImagesPage() {
           toast.error(`"${query}": ${data.error}`);
         } else if (Array.isArray(data.results)) {
           total += data.results.length;
-          setPinterestResults((prev) => [...prev, ...data.results]);
+          setPinterestResults((prev) => [
+            ...prev,
+            ...data.results.map((r: PinterestResult) => ({ ...r, source: "pinterest" as const })),
+          ]);
         }
       } catch {
         lastError = "network error";
@@ -320,6 +330,18 @@ export default function ImagesPage() {
     } finally {
       setUploading(false);
     }
+  };
+
+  // Images imported from Drive were picked in the browser already, so they
+  // arrive selected.
+  const addImportedRefs = (refs: PinterestResult[]) => {
+    const start = pinterestResults.length;
+    setPinterestResults((prev) => [...prev, ...refs]);
+    setSelectedRefs((prev) => {
+      const next = new Set(prev);
+      refs.forEach((_, i) => next.add(start + i));
+      return next;
+    });
   };
 
   const toggleRef = (index: number) => {
@@ -702,25 +724,54 @@ export default function ImagesPage() {
                 </p>
               ) : (
                 <>
+                  {!driveRoot && (
+                    <p className="text-xs text-muted-foreground">
+                      Click a Drive to browse it, import reference photos from it, and save every generated
+                      image back into it, sorted by model and day.
+                    </p>
+                  )}
                   <div className="flex flex-wrap gap-2">
-                    {driveRoots.map((r) => (
-                      <button
-                        key={r.id}
-                        onClick={() => pickDriveRoot(driveRoot?.id === r.id ? null : r)}
-                        className={`flex items-center gap-2 p-3 rounded-xl text-sm transition-all ${
-                          driveRoot?.id === r.id ? "glass-strong border-brand/30" : "glass hover:bg-white/5"
-                        }`}
-                      >
-                        <HardDrive className="h-4 w-4 text-brand" />
-                        {r.name}
-                      </button>
-                    ))}
+                    {driveRoots.map((r) => {
+                      const on = driveRoot?.id === r.id;
+                      return (
+                        <button
+                          key={r.id}
+                          onClick={() => {
+                            pickDriveRoot(on ? null : r);
+                            setBrowsingDrive(false);
+                          }}
+                          className={`flex items-center gap-2 p-3 rounded-xl text-sm transition-all border ${
+                            on ? "border-brand bg-brand/10 text-foreground" : "glass border-transparent hover:bg-white/5"
+                          }`}
+                        >
+                          {on ? <CheckSquare className="h-4 w-4 text-brand" /> : <HardDrive className="h-4 w-4 text-brand" />}
+                          {r.name}
+                        </button>
+                      );
+                    })}
                   </div>
                   {driveRoot && (
-                    <div className="space-y-1.5 text-xs">
-                      <p className="text-muted-foreground">
-                        Import references from it in the References step (any folder, however it&apos;s organised).
-                      </p>
+                    <div className="space-y-2 text-xs">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setBrowsingDrive((b) => !b)}
+                          className="h-8 rounded-lg border-white/10 gap-1.5 text-xs"
+                        >
+                          <HardDrive className="h-3.5 w-3.5" />
+                          {browsingDrive ? "Hide folders" : "Browse folders / new folder"}
+                        </Button>
+                        {pinterestResults.length > 0 && (
+                          <span className="text-muted-foreground">
+                            {pinterestResults.length} reference{pinterestResults.length === 1 ? "" : "s"} imported so far
+                            (you&apos;ll see them in the References step)
+                          </span>
+                        )}
+                      </div>
+                      {browsingDrive && (
+                        <DrivePicker rootId={driveRoot.id} rootName={driveRoot.name} onImported={addImportedRefs} />
+                      )}
                       {driveCheck === null ? (
                         <p className="flex items-center gap-1.5 text-muted-foreground">
                           <Loader2 className="h-3 w-3 animate-spin" /> Checking it can store outputs…
@@ -1007,20 +1058,7 @@ export default function ImagesPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {refSource === "drive" && driveRoot && (
-              <DrivePicker
-                rootId={driveRoot.id}
-                rootName={driveRoot.name}
-                onImported={(refs) => {
-                  // Picked in the browser already, so select them too.
-                  const start = pinterestResults.length;
-                  setPinterestResults((prev) => [...prev, ...refs]);
-                  setSelectedRefs((prev) => {
-                    const next = new Set(prev);
-                    refs.forEach((_, i) => next.add(start + i));
-                    return next;
-                  });
-                }}
-              />
+              <DrivePicker rootId={driveRoot.id} rootName={driveRoot.name} onImported={addImportedRefs} />
             )}
             {pinterestResults.length === 0 && !loadingRefs && !uploading ? (
               refSource === "drive" ? null : (
