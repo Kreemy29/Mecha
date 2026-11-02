@@ -45,6 +45,13 @@ export default function SettingsPage() {
   const [showToken, setShowToken] = useState(false);
   const [savingToken, setSavingToken] = useState(false);
   const [showManual, setShowManual] = useState(false);
+  // Higgsfield sign-in: "connecting" while the server builds the link (a
+  // sleeping Render instance can take a minute); "paste" when this hosted copy
+  // has to finish by pasting back the address Higgsfield sent the browser to.
+  const [hfConnecting, setHfConnecting] = useState(false);
+  const [hfPaste, setHfPaste] = useState<{ authUrl: string } | null>(null);
+  const [hfPastedUrl, setHfPastedUrl] = useState("");
+  const [hfFinishing, setHfFinishing] = useState(false);
 
   // Yapper (yapper.so) — a plain REST API keyed by a static API key, so
   // there's no OAuth connect flow like Higgsfield's, just a key paste.
@@ -174,6 +181,48 @@ export default function SettingsPage() {
     }
   }, [fetchStatus]);
 
+  const connectHiggsfield = async () => {
+    setHfConnecting(true);
+    try {
+      const res = await fetch("/api/higgsfield/connect?json=1");
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      if (data.mode === "paste") {
+        setHfPaste({ authUrl: data.authUrl });
+        setHfPastedUrl("");
+        window.open(data.authUrl, "_blank", "noopener");
+      } else {
+        window.location.href = data.authUrl;
+      }
+    } catch (err: unknown) {
+      toast.error(`Higgsfield connect failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setHfConnecting(false);
+    }
+  };
+
+  const finishHiggsfieldPaste = async () => {
+    if (!hfPastedUrl.trim()) return;
+    setHfFinishing(true);
+    try {
+      const res = await fetch("/api/higgsfield/callback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: hfPastedUrl.trim() }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      toast.success("Connected to Higgsfield");
+      setHfPaste(null);
+      setHfPastedUrl("");
+      fetchStatus();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Couldn't finish connecting");
+    } finally {
+      setHfFinishing(false);
+    }
+  };
+
   const handleSaveToken = async () => {
     if (!tokenInput.trim()) return;
     setSavingToken(true);
@@ -290,20 +339,69 @@ export default function SettingsPage() {
               with a different Higgsfield login connects it as a separate account
               alongside any others.
             </p>
-            <a href="/api/higgsfield/connect" className="inline-block">
-              <Button
-                className={`rounded-xl gap-2 text-white ${
-                  hfStatus?.hasToken
-                    ? "bg-white/10 hover:bg-white/15"
-                    : "bg-brand hover:bg-brand/90"
-                }`}
-              >
-                <Plug className="h-4 w-4" />
-                {hfStatus?.hasToken
+            <Button
+              onClick={connectHiggsfield}
+              disabled={hfConnecting}
+              className={`rounded-xl gap-2 text-white ${
+                hfStatus?.hasToken
+                  ? "bg-white/10 hover:bg-white/15"
+                  : "bg-brand hover:bg-brand/90"
+              }`}
+            >
+              {hfConnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />}
+              {hfConnecting
+                ? "Opening Higgsfield…"
+                : hfStatus?.hasToken
                   ? "Connect another Higgsfield account"
                   : "Connect Higgsfield MCP"}
-              </Button>
-            </a>
+            </Button>
+            {hfConnecting && (
+              <p className="text-xs text-muted-foreground">
+                If the server was asleep this can take up to a minute.
+              </p>
+            )}
+
+            {/* Hosted copies finish by pasting the address Higgsfield sends
+                the browser to (it only accepts localhost return addresses). */}
+            {hfPaste && (
+              <div className="space-y-2 rounded-xl border border-brand/30 bg-brand/[0.05] p-3 text-xs">
+                <p className="font-medium text-sm">Finish connecting</p>
+                <ol className="list-decimal space-y-1 pl-4 text-muted-foreground">
+                  <li>
+                    Sign in and approve on the Higgsfield tab that just opened (
+                    <a href={hfPaste.authUrl} target="_blank" rel="noreferrer" className="text-brand hover:underline">
+                      open it again
+                    </a>
+                    ).
+                  </li>
+                  <li>
+                    Higgsfield then sends that tab to a <span className="font-mono">localhost:8765</span> page that
+                    won&apos;t load. That&apos;s expected.
+                  </li>
+                  <li>Copy the whole address from that tab&apos;s address bar and paste it here.</li>
+                </ol>
+                <div className="flex gap-2">
+                  <Input
+                    value={hfPastedUrl}
+                    onChange={(e) => setHfPastedUrl(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && finishHiggsfieldPaste()}
+                    placeholder="http://localhost:8765/callback?code=…"
+                    className="font-mono text-xs"
+                  />
+                  <Button
+                    onClick={finishHiggsfieldPaste}
+                    disabled={!hfPastedUrl.trim() || hfFinishing}
+                    className="rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground gap-1.5 shrink-0"
+                  >
+                    {hfFinishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                    Connect
+                  </Button>
+                  <Button variant="ghost" onClick={() => setHfPaste(null)} className="shrink-0">
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Connected accounts */}

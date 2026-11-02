@@ -79,9 +79,56 @@ async function getClientId(redirectUri: string): Promise<string> {
   return data.client_id;
 }
 
+// Higgsfield only registers redirect URIs on its trusted list: loopback
+// addresses pass, a hosted app's own https://…/api/higgsfield/callback is
+// refused ("not in the trusted list"). A hosted app therefore sends the
+// browser back to this loopback address instead; nothing listens there, so
+// the page fails to load, and the person pastes that address (it carries the
+// code) into Settings, which finishes the exchange server-side.
+export const LOOPBACK_REDIRECT = "http://localhost:8765/callback";
+
+const isLoopbackOrigin = (origin: string) => {
+  try {
+    return ["localhost", "127.0.0.1", "[::1]"].includes(new URL(origin).hostname);
+  } catch {
+    return false;
+  }
+};
+
+export type ConnectMode = "redirect" | "paste";
+
+// The sign-in link for this app. Local copies come straight back to the
+// callback route ("redirect"); hosted ones use the loopback address ("paste").
+export async function connectUrl(origin: string): Promise<{ authUrl: string; mode: ConnectMode }> {
+  if (isLoopbackOrigin(origin)) return { authUrl: await buildAuthorizeUrl(origin), mode: "redirect" };
+  try {
+    return { authUrl: await buildAuthorizeUrl(origin), mode: "redirect" };
+  } catch (err) {
+    if (!/invalid_redirect_uri|trusted list/i.test(err instanceof Error ? err.message : String(err))) throw err;
+    return { authUrl: await buildAuthorizeUrl(origin, LOOPBACK_REDIRECT), mode: "paste" };
+  }
+}
+
+// The address the browser ended on after approving (the loopback page that
+// failed to load), pasted back in: pull the code out and exchange it.
+export async function exchangePastedRedirect(pasted: string): Promise<void> {
+  let url: URL;
+  try {
+    url = new URL(pasted.trim());
+  } catch {
+    throw new Error("Paste the whole address from the browser's address bar (it starts with http://localhost:8765/callback?code=…)");
+  }
+  const error = url.searchParams.get("error");
+  if (error) throw new Error(url.searchParams.get("error_description") || error);
+  const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state");
+  if (!code || !state) throw new Error("That address has no sign-in code in it. Copy it after approving on Higgsfield.");
+  await exchangeCodeForToken(code, state);
+}
+
 // ── Step 1: build the authorize URL and stash the PKCE verifier ──
-export async function buildAuthorizeUrl(origin: string): Promise<string> {
-  const redirectUri = `${origin}/api/higgsfield/callback`;
+export async function buildAuthorizeUrl(origin: string, redirectOverride?: string): Promise<string> {
+  const redirectUri = redirectOverride || `${origin}/api/higgsfield/callback`;
   const clientId = await getClientId(redirectUri);
 
   const codeVerifier = b64url(crypto.randomBytes(64));

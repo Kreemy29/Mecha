@@ -1,6 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { exchangeCodeForToken } from "@/lib/services/higgsfield-oauth";
+import { exchangeCodeForToken, exchangePastedRedirect } from "@/lib/services/higgsfield-oauth";
 import { publicOrigin } from "@/lib/request-origin";
+import { requireUser } from "@/lib/services/auth";
+
+// { url } → finish a "paste" sign-in: the loopback address the browser landed
+// on after approving on Higgsfield, which carries the code.
+export async function POST(request: NextRequest) {
+  const { deny } = await requireUser();
+  if (deny) return deny;
+  const { url } = await request.json();
+  try {
+    await exchangePastedRedirect(String(url ?? ""));
+    return NextResponse.json({ ok: true });
+  } catch (err: unknown) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 });
+  }
+}
 
 // Higgsfield redirects here after the user approves. We exchange the code for a
 // token, save it, and bounce back to Settings.
