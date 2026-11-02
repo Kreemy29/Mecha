@@ -75,6 +75,7 @@ interface Job {
   attempts: number;
   error: string | null;
   promptHistory: Array<Record<string, unknown>>;
+  characterId?: number | null;
   providerParams?: {
     drive?: { rootId: string; rootName?: string; model: string; date: string };
     driveUpload?: { ok: boolean; url?: string; folder?: string; error?: string };
@@ -120,7 +121,13 @@ export default function ImagesPage() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [presets, setPresets] = useState<Preset[]>([]);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
+  // Several models at once: the same references are recreated for each one,
+  // with a prompt written from that model's own face and profile.
+  const [selectedCharacterIds, setSelectedCharacterIds] = useState<number[]>([]);
+  const selectedCharacters = characters.filter((c) => selectedCharacterIds.includes(c.id));
+  const toggleCharacter = (id: number) =>
+    setSelectedCharacterIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const characterName = (id: number | null | undefined) => characters.find((c) => c.id === id)?.name;
   const [selectedPreset, setSelectedPreset] = useState<Preset | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<string>("higgsfield");
   const [selectedModel, setSelectedModel] = useState<string>("soul_2");
@@ -160,9 +167,18 @@ export default function ImagesPage() {
 
   // Recreation prompts
   const [recreationPrompts, setRecreationPrompts] = useState<
-    Array<{ refIndex: number; prompt: string; imageUrl: string; sceneRefUrl: string }>
+    Array<{
+      refIndex: number;
+      characterId: number;
+      prompt: string;
+      imageUrl: string;
+      sceneRefUrl: string;
+    }>
   >([]);
   const [loadingRecreation, setLoadingRecreation] = useState(false);
+  const [recreationProgress, setRecreationProgress] = useState<{ done: number; total: number } | null>(null);
+  // Review: show every model, or one.
+  const [reviewModel, setReviewModel] = useState<number | "all">("all");
 
   // Jobs
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -206,10 +222,11 @@ export default function ImagesPage() {
     }
   };
 
-  // The Drive target sent with each job, if outputs should be filed there.
-  const driveTarget =
-    driveRoot && saveToDrive && driveCheck?.ok && selectedCharacter
-      ? { rootId: driveRoot.id, rootName: driveRoot.name, model: selectedCharacter.name, date: todayLocal() }
+  // The Drive target sent with a model's jobs, if outputs should be filed
+  // there: each model gets its own outputs/<model>/<date>/ folder.
+  const driveTargetFor = (model: string) =>
+    driveRoot && saveToDrive && driveCheck?.ok
+      ? { rootId: driveRoot.id, rootName: driveRoot.name, model, date: todayLocal() }
       : undefined;
 
   useEffect(() => {
@@ -244,7 +261,7 @@ export default function ImagesPage() {
 
   // ── Step 1: Setup ──
   // A preset is only needed to search Pinterest; Drive and upload skip it.
-  const canProceedSetup = selectedCharacter && selectedProvider && selectedModel;
+  const canProceedSetup = selectedCharacters.length > 0 && selectedProvider && selectedModel;
   const currentProviderInfo = providers.find((p) => p.id === selectedProvider);
   const currentModelInfo = currentProviderInfo?.models.find((m) => m.key === selectedModel);
 
@@ -354,56 +371,82 @@ export default function ImagesPage() {
   };
 
   // ── Step 4: Write recreation prompts (Visual Subject Swap via Grok vision) ──
+  // One prompt per (reference × model): each is written from that model's own
+  // face image and profile, so the same scene is recreated for every model.
   const handleWriteRecreation = async () => {
-    if (!selectedCharacter) return;
-    if (!selectedCharacter.baseImagePath) {
+    const withoutFace = selectedCharacters.filter((c) => !c.baseImagePath);
+    const models = selectedCharacters.filter((c) => c.baseImagePath);
+    if (withoutFace.length) {
       toast.error(
-        `${selectedCharacter.name} has no face reference image. Sync from Higgsfield or add a base image.`
+        `Skipping ${withoutFace.map((c) => c.name).join(", ")}: no face reference image. Sync from Higgsfield or add a base image.`
       );
-      return;
     }
+    if (models.length === 0) return;
+
+    const pairs = models.flatMap((c) =>
+      Array.from(selectedRefs)
+        .filter((idx) => pinterestResults[idx])
+        .map((idx) => ({ c, idx }))
+    );
     setLoadingRecreation(true);
-    const prompts: typeof recreationPrompts = [];
+    setRecreationProgress({ done: 0, total: pairs.length });
+    const results: Array<(typeof recreationPrompts)[number] | null> = new Array(pairs.length).fill(null);
 
-    const faceRefUrl = selectedCharacter.baseImagePath.startsWith("http")
-      ? selectedCharacter.baseImagePath
-      : `${window.location.origin}/api/files/${selectedCharacter.baseImagePath}`;
-
-    for (const idx of Array.from(selectedRefs)) {
+    const writeOne = async ({ c, idx }: (typeof pairs)[number], slot: number) => {
       const ref = pinterestResults[idx];
-      if (!ref) continue;
-
+      const faceRefUrl = c.baseImagePath!.startsWith("http")
+        ? c.baseImagePath!
+        : `${window.location.origin}/api/files/${c.baseImagePath}`;
       try {
-        // Visual Subject Swap: scene = pinterest image, face = character soul image
+        // Visual Subject Swap: scene = reference image, face = the model's image
         const res = await fetch("/api/grok/swap-prompt", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             sceneRefUrl: ref.imageUrl || ref.thumbnailUrl,
             faceRefUrl,
-            settingDescription: selectedCharacter.featureProfile,
-            characterName: selectedCharacter.name,
+            settingDescription: c.featureProfile,
+            characterName: c.name,
           }),
         });
         const data = await res.json();
         if (data.prompt) {
-          prompts.push({
+          results[slot] = {
             refIndex: idx,
+            characterId: c.id,
             prompt: data.prompt,
             imageUrl: ref.thumbnailUrl,
             sceneRefUrl: ref.imageUrl || ref.thumbnailUrl,
-          });
+          };
         } else if (data.error) {
-          toast.error(`Ref #${idx + 1}: ${data.error}`);
+          toast.error(`${c.name}, ref #${idx + 1}: ${data.error}`);
         }
       } catch {
-        toast.error(`Failed to generate swap prompt for ref #${idx + 1}`);
+        toast.error(`Failed to write the prompt for ${c.name}, ref #${idx + 1}`);
+      } finally {
+        setRecreationProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
       }
-    }
+    };
 
+    // A few Grok calls at a time: all models at once, without a burst of
+    // dozens of requests.
+    let next = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(4, pairs.length) }, async () => {
+        while (next < pairs.length) {
+          const slot = next++;
+          await writeOne(pairs[slot], slot);
+        }
+      })
+    );
+
+    const prompts = results.filter((r): r is NonNullable<typeof r> => !!r);
     setRecreationPrompts(prompts);
     setLoadingRecreation(false);
-    toast.success(`Generated ${prompts.length} swap prompts`);
+    setRecreationProgress(null);
+    toast.success(
+      `Wrote ${prompts.length} prompt${prompts.length === 1 ? "" : "s"} for ${models.length} model${models.length === 1 ? "" : "s"}`
+    );
   };
 
   // ── Step 5: Generate images ──
@@ -421,7 +464,7 @@ export default function ImagesPage() {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 prompt: rp.prompt,
-                characterProfile: selectedCharacter?.featureProfile || "",
+                characterProfile: characters.find((c) => c.id === rp.characterId)?.featureProfile || "",
               }),
             });
             const data = await res.json();
@@ -444,12 +487,13 @@ export default function ImagesPage() {
     }
 
     for (const rp of promptsToGenerate) {
+      const drive = driveTargetFor(characterName(rp.characterId) || "Unknown model");
       const providerParams = {
         quality: genQuality,
         aspectRatio: genAspectRatio,
         enhancePrompt: genEnhance,
         sceneRefUrl: rp.sceneRefUrl,
-        ...(driveTarget ? { drive: driveTarget } : {}),
+        ...(drive ? { drive } : {}),
       };
       // batch size = number of images per prompt (one job each)
       for (let i = 0; i < genBatchSize; i++) {
@@ -463,7 +507,7 @@ export default function ImagesPage() {
               provider: selectedProvider,
               providerModel: selectedModel,
               providerParams,
-              characterId: selectedCharacter?.id,
+              characterId: rp.characterId,
             }),
           });
           const job = await res.json();
@@ -475,6 +519,7 @@ export default function ImagesPage() {
     }
 
     setJobs(newJobs);
+    setReviewModel("all");
     setPollingJobs(true);
     setStep("generate");
     toast.success(
@@ -616,7 +661,32 @@ export default function ImagesPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Select Character</CardTitle>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-sm">
+                  Select models
+                  {selectedCharacters.length > 0 && (
+                    <span className="ml-2 font-normal text-xs text-muted-foreground">
+                      {selectedCharacters.length} selected
+                    </span>
+                  )}
+                </CardTitle>
+                {characters.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedCharacterIds(
+                        selectedCharacters.length === characters.length ? [] : characters.map((c) => c.id)
+                      )
+                    }
+                    className="text-xs text-brand hover:underline"
+                  >
+                    {selectedCharacters.length === characters.length ? "Clear" : "Select all"}
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Pick one or several: each reference is recreated for every model you pick.
+              </p>
             </CardHeader>
             <CardContent className="space-y-2">
               {characters.length === 0 ? (
@@ -633,16 +703,19 @@ export default function ImagesPage() {
                       ? c.baseImagePath
                       : `/api/files/${c.baseImagePath}`
                     : null;
+                  const on = selectedCharacterIds.includes(c.id);
                   return (
                     <button
                       key={c.id}
-                      onClick={() => setSelectedCharacter(c)}
-                      className={`w-full text-left p-3 rounded-xl transition-all flex gap-3 items-center ${
-                        selectedCharacter?.id === c.id
-                          ? "glass-strong border-brand/30"
-                          : "glass hover:bg-white/5"
+                      onClick={() => toggleCharacter(c.id)}
+                      className={`w-full text-left p-3 rounded-xl transition-all flex gap-3 items-center border ${
+                        on ? "border-brand bg-brand/10" : "glass border-transparent hover:bg-white/5"
                       }`}
                     >
+                      <Checkbox
+                        checked={on}
+                        className="shrink-0 border-white/40 data-[state=checked]:bg-brand data-[state=checked]:border-brand"
+                      />
                       <div className="h-12 w-12 rounded-lg overflow-hidden bg-white/5 shrink-0">
                         {thumb ? (
                           <img
@@ -782,8 +855,15 @@ export default function ImagesPage() {
                           <span>
                             Save every generated image to{" "}
                             <span className="font-mono text-foreground">
-                              {driveRoot.name}/outputs/{selectedCharacter?.name || "<model>"}/{todayLocal()}/
+                              {driveRoot.name}/outputs/
+                              {selectedCharacters.length === 1 ? selectedCharacters[0].name : "<model>"}/{todayLocal()}/
                             </span>
+                            {selectedCharacters.length > 1 && (
+                              <span className="text-muted-foreground">
+                                {" "}
+                                (one folder per model: {selectedCharacters.map((c) => c.name).join(", ")})
+                              </span>
+                            )}
                           </span>
                         </label>
                       ) : (
@@ -1175,14 +1255,19 @@ export default function ImagesPage() {
             )}
             {recreationPrompts.length === 0 && !loadingRecreation && (
               <p className="text-sm text-muted-foreground text-center py-8">
-                Click write prompts to generate recreation prompts for your
-                selected references using {selectedCharacter?.name}&apos;s profile.
+                Click write prompts to write a recreation prompt for each of your {selectedRefs.size} selected
+                reference{selectedRefs.size === 1 ? "" : "s"} ×{" "}
+                {selectedCharacters.map((c) => c.name).join(", ") || "your models"}
+                {selectedCharacters.length > 1 && ` (${selectedRefs.size * selectedCharacters.length} prompts)`}.
               </p>
             )}
             {loadingRecreation && (
               <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground">
                 <Loader2 className="h-5 w-5 animate-spin" />
-                <span className="text-sm">Writing recreation prompts with Grok...</span>
+                <span className="text-sm">
+                  Writing recreation prompts with Grok
+                  {recreationProgress && ` (${recreationProgress.done}/${recreationProgress.total})`}…
+                </span>
               </div>
             )}
             {recreationPrompts.map((rp, i) => (
@@ -1194,9 +1279,15 @@ export default function ImagesPage() {
                 />
                 <div className="flex-1 space-y-2">
                   <div className="flex items-center justify-between">
-                    <Badge variant="outline" className="text-xs border-white/10 bg-white/5">
-                      Prompt #{i + 1}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-xs border-white/10 bg-white/5">
+                        Prompt #{i + 1}
+                      </Badge>
+                      <Badge className="text-xs bg-brand/10 text-brand border-brand/20 border">
+                        {characterName(rp.characterId) || "Unknown model"}
+                      </Badge>
+                      <span className="text-[11px] text-muted-foreground">ref #{rp.refIndex + 1}</span>
+                    </div>
                   </div>
                   <Textarea
                     value={rp.prompt}
@@ -1239,8 +1330,11 @@ export default function ImagesPage() {
                 return (
                   <div key={job.id} className="p-4 rounded-xl glass space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-mono text-muted-foreground">
-                        Job #{job.id}
+                      <span className="text-xs text-muted-foreground truncate">
+                        <span className="font-mono">#{job.id}</span>
+                        {characterName(job.characterId) && (
+                          <span className="ml-1.5 font-medium text-foreground">{characterName(job.characterId)}</span>
+                        )}
                       </span>
                       <Badge className={`text-xs border ${sc[job.status]?.color || ""}`}>
                         {["running", "polling", "queued"].includes(job.status) && (
@@ -1316,13 +1410,43 @@ export default function ImagesPage() {
               </div>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            {(() => {
+              // One chip per model in this batch, to review them one by one.
+              const ids = [...new Set(jobs.map((j) => j.characterId).filter((id): id is number => !!id))];
+              if (ids.length < 2) return null;
+              const chip = (key: number | "all", label: string, count: number) => (
+                <button
+                  key={String(key)}
+                  type="button"
+                  onClick={() => setReviewModel(key)}
+                  className={`rounded-lg px-3 py-1.5 text-xs transition-colors ${
+                    reviewModel === key ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {label} <span className="text-muted-foreground">{count}</span>
+                </button>
+              );
+              return (
+                <div className="glass rounded-xl p-1 flex flex-wrap gap-0.5">
+                  {chip("all", "All models", jobs.length)}
+                  {ids.map((id) =>
+                    chip(id, characterName(id) || `Model ${id}`, jobs.filter((j) => j.characterId === id).length)
+                  )}
+                </div>
+              );
+            })()}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {jobs.map((job) => (
+              {jobs
+                .filter((j) => reviewModel === "all" || j.characterId === reviewModel)
+                .map((job) => (
                 <div key={job.id} className="p-4 rounded-xl glass space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono text-muted-foreground">
-                      Job #{job.id}
+                    <span className="text-xs text-muted-foreground truncate">
+                      <span className="font-mono">#{job.id}</span>
+                      {characterName(job.characterId) && (
+                        <span className="ml-1.5 font-medium text-foreground">{characterName(job.characterId)}</span>
+                      )}
                     </span>
                     {isApproved(job) ? (
                       <Badge className="text-xs bg-emerald-500/10 text-emerald-400 border-emerald-500/20 border">
